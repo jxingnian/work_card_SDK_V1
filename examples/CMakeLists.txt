@@ -11,28 +11,66 @@ add_executable(camera_demo camera_demo.c)
 add_executable(wifi_demo wifi_demo.c)
 add_executable(wifi_web_demo wifi_web_demo/wifi_web_demo.cpp)
 
+set(EHAL_SDK_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
+set(EHAL_SDK_LIB_DIR "${EHAL_SDK_ROOT}/lib")
+
 target_include_directories(camera_demo PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../include"
+    "${EHAL_SDK_ROOT}/include"
 )
 target_include_directories(wifi_demo PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../include"
+    "${EHAL_SDK_ROOT}/include"
 )
 target_include_directories(wifi_web_demo PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../include"
+    "${EHAL_SDK_ROOT}/include"
 )
 
 target_link_directories(camera_demo PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../lib"
+    "${EHAL_SDK_LIB_DIR}"
 )
 target_link_directories(wifi_demo PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../lib"
+    "${EHAL_SDK_LIB_DIR}"
 )
 target_link_directories(wifi_web_demo PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../lib"
+    "${EHAL_SDK_LIB_DIR}"
+)
+
+set(EHAL_CAMERA_CHIP_LINK_LIBS
+    ss_mpi
+    ss_mpi_sysbind
+    ss_mpi_sysmem
+    ss_mpi_ae
+    ss_mpi_isp
+    ot_mpi_isp
+    ss_mpi_awb
+    dehaze
+    extend_stats
+    drc
+    ldci
+    bnr
+    calcflicker
+    ir_auto
+    acs
+    securec
+    sns_sc2356
+    ss_mpi_aibnr
+    svp_acl
+    ss_mpi_km
+    protobuf-c
+    ot_osal
+    ss_mpi_ive
+    ss_mpi_smartae
+    ss_mpi_otp
+    ss_mpi_cipher
+    ss_mpi_uvc
+    stdc++
 )
 
 target_link_libraries(camera_demo PRIVATE
+    -Wl,-rpath-link=${EHAL_SDK_LIB_DIR}
     ehal_camera
+    hal
+    jsoncpp
+    ${EHAL_CAMERA_CHIP_LINK_LIBS}
     pthread
     dl
     m
