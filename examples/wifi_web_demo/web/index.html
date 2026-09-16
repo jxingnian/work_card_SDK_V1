@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WiFi Test</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --line: #d8dee8;
+      --text: #1c2430;
+      --muted: #657184;
+      --accent: #1677ff;
+      --ok: #16845b;
+      --bad: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+    h1 { margin: 0; font-size: 20px; font-weight: 700; }
+    main {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 20px auto;
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 16px;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    h2 { margin: 0 0 14px; font-size: 16px; }
+    .status {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      min-height: 64px;
+    }
+    .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+    .value { font-size: 15px; font-weight: 700; word-break: break-all; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    button {
+      height: 36px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.danger { color: var(--bad); }
+    button:disabled { opacity: .55; cursor: wait; }
+    input {
+      width: 100%;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      font-size: 14px;
+      background: #fff;
+      color: var(--text);
+    }
+    label { display: block; color: var(--muted); font-size: 12px; margin: 12px 0 6px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    th { color: var(--muted); font-weight: 700; }
+    .grid { display: grid; gap: 16px; }
+    .log {
+      min-height: 132px;
+      max-height: 260px;
+      overflow: auto;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0d1117;
+      color: #d8e2ef;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+    .ok { color: var(--ok); }
+    .bad { color: var(--bad); }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      .status { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WiFi Test</h1>
+    <button id="refreshBtn">刷新状态</button>
+  </header>
+
+  <main>
+    <div class="grid">
+      <section>
+        <h2>状态</h2>
+        <div class="status">
+          <div class="metric"><div class="label">STA</div><div class="value" id="staState">-</div></div>
+          <div class="metric"><div class="label">SSID</div><div class="value" id="staSsid">-</div></div>
+          <div class="metric"><div class="label">IP</div><div class="value" id="staIp">-</div></div>
+          <div class="metric"><div class="label">AP</div><div class="value" id="apState">-</div></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>扫描与连接</h2>
+        <div class="toolbar">
+          <button class="primary" id="scanBtn">扫描</button>
+          <button class="danger" id="disconnectBtn">断开 STA</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:30%">SSID</th>
+              <th style="width:23%">BSSID</th>
+              <th style="width:13%">信号</th>
+              <th style="width:14%">认证</th>
+              <th style="width:20%">操作</th>
+            </tr>
+          </thead>
+          <tbody id="apList"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="grid">
+      <section>
+        <h2>STA 连接</h2>
+        <label for="ssid">SSID</label>
+        <input id="ssid" autocomplete="off">
+        <label for="password">密码</label>
+        <input id="password" type="password" autocomplete="new-password">
+        <div class="toolbar" style="margin-top:14px">
+          <button class="primary" id="connectBtn">连接</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>AP 热点</h2>
+        <label for="apSsid">热点 SSID</label>
+        <input id="apSsid" value="WorkCard_AP" autocomplete="off">
+        <label for="apPassword">热点密码</label>
+        <input id="apPassword" value="12345678" type="password" autocomplete="new-password">
+        <label for="apIp">热点 IP</label>
+        <input id="apIp" value="192.168.4.1" inputmode="numeric">
+        <label for="apChannel">信道</label>
+        <input id="apChannel" value="6" inputmode="numeric">
+        <div class="toolbar" style="margin-top:14px">
+          <button class="primary" id="apStartBtn">开启 AP</button>
+          <button class="danger" id="apStopBtn">关闭 AP</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>返回</h2>
+        <div class="log" id="log"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const log = (data) => {
+      $('log').textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    };
+    const form = (obj) => new URLSearchParams(obj).toString();
+    async function api(path, options = {}) {
+      const res = await fetch(path, options);
+      const data = await res.json();
+      log(data);
+      if (!data.ok) throw new Error(data.error || 'api failed');
+      return data;
+    }
+    async function refresh() {
+      const data = await api('/api/status');
+      $('staState').textContent = data.sta?.state || '-';
+      $('staSsid').textContent = data.sta?.ssid || '-';
+      $('staIp').textContent = data.ip?.ip || data.sta?.ip || '-';
+      $('apState').textContent = data.ap?.running ? `${data.ap.ssid} ${data.ap.ip}` : 'stopped';
+    }
+    async function scan() {
+      const data = await api('/api/scan');
+      $('apList').innerHTML = '';
+      data.aps.forEach((ap) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td title="${ap.ssid}">${ap.ssid || '(hidden)'}</td>
+          <td title="${ap.bssid}">${ap.bssid}</td>
+          <td>${ap.signal}</td>
+          <td>${ap.auth}</td>
+          <td><button data-ssid="${ap.ssid}">选择</button></td>`;
+        tr.querySelector('button').onclick = () => { $('ssid').value = ap.ssid; };
+        $('apList').appendChild(tr);
+      });
+    }
+    async function post(path, values) {
+      return api(path, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: form(values)
+      });
+    }
+    $('refreshBtn').onclick = () => refresh().catch((e) => log(e.message));
+    $('scanBtn').onclick = () => scan().catch((e) => log(e.message));
+    $('connectBtn').onclick = () => post('/api/connect', {
+      ssid: $('ssid').value,
+      password: $('password').value
+    }).then(refresh).catch((e) => log(e.message));
+    $('disconnectBtn').onclick = () => post('/api/disconnect', {}).then(refresh).catch((e) => log(e.message));
+    $('apStartBtn').onclick = () => post('/api/ap/start', {
+      ssid: $('apSsid').value,
+      password: $('apPassword').value,
+      ip: $('apIp').value,
+      channel: $('apChannel').value
+    }).then(refresh).catch((e) => log(e.message));
+    $('apStopBtn').onclick = () => post('/api/ap/stop', {}).then(refresh).catch((e) => log(e.message));
+    refresh().catch((e) => log(e.message));
+  </script>
+</body>
+</html>
