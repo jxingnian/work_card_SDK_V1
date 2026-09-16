@@ -3,7 +3,7 @@
 set -eu
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$DIR/../.." && pwd)
+ROOT_DIR="$DIR"
 
 if [ -x "$ROOT_DIR/bin/camera_web_demo" ]; then
     APP="$ROOT_DIR/bin/camera_web_demo"

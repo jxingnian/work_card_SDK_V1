@@ -50,7 +50,7 @@ int main(void)
     config.sensor_name = "sc2356";
     config.channel_count = 1;
     config.channels[0].channel = 0;
-    config.channels[0].codec = EHAL_VIDEO_CODEC_H265;
+    config.channels[0].codec = EHAL_VIDEO_CODEC_H264;
     config.video_callback = on_video_frame;
 
     ret = ehal_camera_configure(camera, &config);

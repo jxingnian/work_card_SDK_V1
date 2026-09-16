@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(camera_demo camera_demo.c)
+add_executable(camera_web_demo camera_web_demo/camera_web_demo.cpp)
 add_executable(wifi_demo wifi_demo.c)
 add_executable(wifi_web_demo wifi_web_demo/wifi_web_demo.cpp)
 
@@ -17,6 +18,10 @@ set(EHAL_SDK_LIB_DIR "${EHAL_SDK_ROOT}/lib")
 target_include_directories(camera_demo PRIVATE
     "${EHAL_SDK_ROOT}/include"
 )
+target_include_directories(camera_web_demo PRIVATE
+    "${EHAL_SDK_ROOT}/include"
+    "${EHAL_SDK_ROOT}/include/openssl"
+)
 target_include_directories(wifi_demo PRIVATE
     "${EHAL_SDK_ROOT}/include"
 )
@@ -25,6 +30,9 @@ target_include_directories(wifi_web_demo PRIVATE
 )
 
 target_link_directories(camera_demo PRIVATE
+    "${EHAL_SDK_LIB_DIR}"
+)
+target_link_directories(camera_web_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
 )
 target_link_directories(wifi_demo PRIVATE
@@ -75,6 +83,18 @@ target_link_libraries(camera_demo PRIVATE
     dl
     m
 )
+target_link_libraries(camera_web_demo PRIVATE
+    -Wl,-rpath-link=${EHAL_SDK_LIB_DIR}
+    ehal_camera
+    ssl
+    crypto
+    pthread
+    dl
+    m
+)
+target_link_options(camera_web_demo PRIVATE
+    -Wl,--allow-shlib-undefined
+)
 target_link_libraries(wifi_demo PRIVATE
     ehal_wifi
     stdc++
@@ -90,4 +110,22 @@ target_link_libraries(wifi_web_demo PRIVATE
     pthread
     dl
     m
+)
+
+install(TARGETS camera_demo camera_web_demo
+    RUNTIME DESTINATION bin
+)
+
+install(DIRECTORY camera_web_demo/web/
+    DESTINATION web
+    FILES_MATCHING
+        PATTERN "*.html"
+        PATTERN "*.css"
+        PATTERN "*.js"
+)
+
+install(PROGRAMS
+    camera_web_demo/run_camera_web_demo.sh
+    camera_web_demo/fix_board_sensor_sc2356.sh
+    DESTINATION .
 )
