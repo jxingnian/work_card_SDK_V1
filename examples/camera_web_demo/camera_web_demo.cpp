@@ -33,6 +33,8 @@
 namespace {
 
 constexpr int kDefaultPort = 8080;
+constexpr uint32_t kMaxRuntimeWidth = 1600U;
+constexpr uint32_t kMaxRuntimeHeight = 1200U;
 constexpr size_t kMaxHttpHeaderSize = 16384U;
 constexpr size_t kMaxHttpBodySize = 4096U;
 constexpr char kWebSocketMagic[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -145,6 +147,14 @@ public:
         std::lock_guard<std::mutex> lock(camera_mutex_);
         if (camera_ == nullptr) {
             return EHAL_ERR_STATE;
+        }
+        if (running_) {
+            next_config.default_config_path = config_.default_config_path;
+            next_config.runtime_config_path = config_.runtime_config_path;
+            next_config.user_config_path = config_.user_config_path;
+            next_config.pipeline_name = config_.pipeline_name;
+            next_config.sensor_name = config_.sensor_name;
+            return apply_runtime_config_locked(parameters, next_config);
         }
         bool was_running = running_;
         DemoConfig old_config = config_;
@@ -288,6 +298,65 @@ private:
         camera_config.video_callback = on_video_frame;
         camera_config.user_data = this;
         return ehal_camera_configure(camera_, &camera_config);
+    }
+
+    int apply_runtime_config_locked(
+        const std::map<std::string, std::string> &parameters,
+        const DemoConfig &next_config)
+    {
+        if (next_config.default_config_path != config_.default_config_path ||
+            next_config.runtime_config_path != config_.runtime_config_path ||
+            next_config.user_config_path != config_.user_config_path ||
+            next_config.pipeline_name != config_.pipeline_name ||
+            next_config.sensor_name != config_.sensor_name ||
+            next_config.channel != config_.channel ||
+            next_config.codec != config_.codec ||
+            next_config.fps != config_.fps ||
+            next_config.gop != config_.gop ||
+            next_config.rc_mode != config_.rc_mode ||
+            next_config.profile != config_.profile ||
+            next_config.min_qp != config_.min_qp ||
+            next_config.max_qp != config_.max_qp ||
+            next_config.vpss_nr != config_.vpss_nr ||
+            next_config.vpss_sharpen != config_.vpss_sharpen ||
+            next_config.vpss_iesharp != config_.vpss_iesharp ||
+            next_config.vi_width != config_.vi_width ||
+            next_config.vi_height != config_.vi_height ||
+            next_config.vi_fps != config_.vi_fps ||
+            next_config.vi_bit_width != config_.vi_bit_width ||
+            next_config.vi_wdr != config_.vi_wdr ||
+            next_config.vi_nr != config_.vi_nr ||
+            next_config.vi_sharpen != config_.vi_sharpen) {
+            return EHAL_ERR_PARAM;
+        }
+        if (next_config.width > kMaxRuntimeWidth ||
+            next_config.height > kMaxRuntimeHeight ||
+            next_config.width == 0U ||
+            next_config.height == 0U ||
+            (next_config.width % 2U) != 0U ||
+            (next_config.height % 2U) != 0U) {
+            return EHAL_ERR_PARAM;
+        }
+
+        if (next_config.width != config_.width ||
+            next_config.height != config_.height) {
+            int result = ehal_camera_set_resolution(camera_, next_config.channel,
+                                                    next_config.width,
+                                                    next_config.height);
+            if (result != EHAL_OK) {
+                return result;
+            }
+        }
+        if (parameters.find("bitrate_kbps") != parameters.end() &&
+            next_config.bitrate_kbps != config_.bitrate_kbps) {
+            int result = ehal_camera_set_bitrate(camera_, next_config.channel,
+                                                 next_config.bitrate_kbps);
+            if (result != EHAL_OK) {
+                return result;
+            }
+        }
+        config_ = next_config;
+        return EHAL_OK;
     }
 
     static void on_video_frame(const ehal_video_frame_t *frame, void *user_data)
