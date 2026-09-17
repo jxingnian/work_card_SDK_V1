@@ -20,7 +20,7 @@ if ! grep -q '/root/insmod.sh ' "$AUTORUN"; then
 fi
 
 cp "$AUTORUN" "$AUTORUN.bak"
-sed -i 's#/root/insmod.sh [^[:space:]]*#/root/insmod.sh sc2356#' "$AUTORUN"
+sed -i '/^[[:space:]]*\/root\/insmod.sh /s#/root/insmod.sh [^[:space:]]*#/root/insmod.sh sc2356#' "$AUTORUN"
 
 echo "updated $AUTORUN to use sc2356"
 echo "backup saved to $AUTORUN.bak"

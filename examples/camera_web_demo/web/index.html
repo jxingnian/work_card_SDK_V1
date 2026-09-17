@@ -9,7 +9,7 @@
     main { max-width: 1100px; margin: 24px auto; padding: 0 18px; }
     .grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; }
     .card { background: #1f2937; border-radius: 10px; padding: 16px; }
-    canvas { width: 100%; background: #000; aspect-ratio: 16 / 9; display: block; }
+    canvas { width: 100%; height: auto; background: #000; display: block; }
     label { display: block; margin-top: 10px; color: #cbd5e1; }
     input, select, button { width: 100%; box-sizing: border-box; margin-top: 5px; padding: 8px; border: 1px solid #4b5563; border-radius: 5px; background: #111827; color: #f9fafb; }
     button { cursor: pointer; background: #2563eb; border: 0; margin-top: 16px; }
@@ -125,6 +125,7 @@ const canvas = document.getElementById('video');
 const context = canvas.getContext('2d');
 const message = document.getElementById('message');
 const status = document.getElementById('status');
+const configForm = document.getElementById('config');
 let decoder = null;
 let socket = null;
 
@@ -155,6 +156,42 @@ function closeDecoder() {
   }
 }
 
+function setFormValue(name, value) {
+  const field = configForm.elements[name];
+  if (!field || value === undefined || value === null || document.activeElement === field) {
+    return;
+  }
+  field.value = String(value);
+}
+
+function syncFormFromStatus(value) {
+  [
+    'codec',
+    'width',
+    'height',
+    'fps',
+    'bitrate_kbps',
+    'gop',
+    'rc_mode',
+    'profile',
+    'min_qp',
+    'max_qp',
+    'vi_width',
+    'vi_height',
+    'vi_fps',
+    'vi_bit_width'
+  ].forEach(name => setFormValue(name, value[name]));
+}
+
+function resizeCanvasToFrame(frame) {
+  const width = frame.displayWidth || frame.codedWidth || canvas.width;
+  const height = frame.displayHeight || frame.codedHeight || canvas.height;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+}
+
 function connectStream() {
   if (!('VideoDecoder' in window)) {
     message.textContent = '当前浏览器不支持 WebCodecs，请使用较新的 Chromium 浏览器。';
@@ -173,8 +210,7 @@ function connectStream() {
     if (!decoder) {
       decoder = new VideoDecoder({
         output: frame => {
-          canvas.width = frame.displayWidth || canvas.width;
-          canvas.height = frame.displayHeight || canvas.height;
+          resizeCanvasToFrame(frame);
           context.drawImage(frame, 0, 0, canvas.width, canvas.height);
           frame.close();
         },
@@ -199,13 +235,14 @@ async function refreshStatus() {
   try {
     const response = await fetch('/api/status');
     const value = await response.json();
+    syncFormFromStatus(value);
     status.textContent = JSON.stringify(value, null, 2);
   } catch (error) {
     status.textContent = `状态读取失败：${error.message}`;
   }
 }
 
-document.getElementById('config').addEventListener('submit', async event => {
+configForm.addEventListener('submit', async event => {
   event.preventDefault();
   const body = new URLSearchParams(new FormData(event.target));
   const response = await fetch('/api/config', { method: 'POST', body });
