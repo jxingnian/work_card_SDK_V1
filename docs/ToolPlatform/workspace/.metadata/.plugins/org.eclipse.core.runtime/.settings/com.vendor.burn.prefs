@@ -1,0 +1,6 @@
+eclipse.preferences.version=1
+vendor.burn.config.client.gateway=192.168.68.1
+vendor.burn.config.client.ip=192.168.68.0
+vendor.burn.config.client.netmask=255.255.255.0
+vendor.burn.config.serial=COM8
+vendor.burn.config.serverip=192.168.68.168

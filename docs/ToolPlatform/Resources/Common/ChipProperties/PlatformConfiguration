@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Chips>
+    <Chip id="Hi3516AV300" name="Hi3516AV300" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3516CV500"/>
+    </Chip>
+    <Chip id="Hi3516CV500" name="Hi3516CV500" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3516CV500"/>
+    </Chip>
+    <Chip id="Hi3516DV200" name="Hi3516DV200" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3516EV200"/>
+    </Chip>
+    <Chip id="Hi3516DV300" name="Hi3516DV300" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3516CV500"/>
+    </Chip>
+    <Chip id="Hi3519DV500" name="Hi3519DV500" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3519DV500"/>
+    </Chip>
+    <Chip id="Hi3516CV608" name="Hi3516CV608" productionLine="CAM">
+      <Tool id="BurnTool" param="type=Hi3516CV610"/>
+    </Chip>
+    <Chip id="Hi3516CV610" name="Hi3516CV610" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3516CV610"/>
+    </Chip>
+    <Chip id="Hi3511CV100" name="Hi3511CV100" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3511CV100"/>
+    </Chip>
+	<Chip id="Hi3516DV500" name="Hi3516DV500" productionLine="CAM">
+		<Tool id="BurnTool" param="type=Hi3519DV500"/>
+    </Chip>
+    <Chip id="Hi3516EV200" name="Hi3516EV200" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3516EV200"/>
+    </Chip>
+    <Chip id="Hi3516EV300" name="Hi3516EV300" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3516EV200"/>
+    </Chip>
+    <Chip id="Hi3518EV300" name="Hi3518EV300" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3516EV200"/>
+    </Chip>
+    <Chip id="Hi3519AV100" name="Hi3519AV100" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3556AV100"/>
+    </Chip>
+    <Chip id="Hi3520DV500" name="Hi3520DV500" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3520DV500"/>
+    </Chip>
+    <Chip id="Hi3521DV200" name="Hi3521DV200" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3520DV500"/>
+    </Chip>
+    <Chip id="Hi3531DV200" name="Hi3531DV200" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3531DV200"/>
+    </Chip>
+    <Chip id="Hi3535AV100" name="Hi3535AV100" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3531DV200"/>
+    </Chip>
+    <Chip id="Hi3536CV200" name="Hi3536CV200" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3520DV500"/>
+    </Chip>
+    <Chip id="Hi3536DV100" name="Hi3536DV100" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3536DV100"/>
+    </Chip>
+    <Chip id="Hi3536EV100" name="Hi3536EV100" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3536DV100"/>
+    </Chip>
+    <Chip id="Hi3556AV100" name="Hi3556AV100" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3556AV100"/>
+    </Chip>
+    <Chip id="Hi3556V200" name="Hi3556V200" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3559V200"/>
+    </Chip>
+    <Chip id="Hi3559AV100" name="Hi3559AV100" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3559AV100"/>
+    </Chip>
+    <Chip id="Hi3559V200" name="Hi3559V200" productionLine="CAM">
+        <Tool id="BurnTool" param="type=Hi3559V200"/>
+    </Chip>
+    <Chip id="SD3403V100" name="SD3403V100" productionLine="CAM">
+        <Tool id="BurnTool" param="type=SD3403V100"/>
+    </Chip>
+    <Chip id="SD3491" name="SD3491" productionLine="CAM">
+        <Tool id="BurnTool" param="type=SD3403V100"/>
+    </Chip>
+</Chips>

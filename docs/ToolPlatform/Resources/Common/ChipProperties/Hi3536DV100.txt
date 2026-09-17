@@ -1,0 +1,16 @@
+[Type]
+TYPE=CAM
+
+[Flash type & file system]
+EMMC=0
+BADCHECK=0
+CA=0
+EXT=0
+YAFFS=1
+SQUASHFS=1
+SPINANDBURN=600
+SPINandPinSaveMode=v3
+TFTPWIN=1
+
+[Other]
+ChipType=14

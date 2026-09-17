@@ -1,0 +1,24 @@
+[Type]
+TYPE=CAM
+
+[Flash type & file system]
+EMMC=2
+BADCHECK=0
+CA=0
+EXT=1
+YAFFS=1
+SQUASHFS=1
+SPINANDBURN=600
+SPINandPinSaveMode=v3
+SPINandEmpty=1
+DDrTrainingDelay=1
+USBBootrom=1
+DDRBURN=1
+TFTPWIN=1
+
+[Other]
+ChipType=10
+
+[Erase command]
+isEraseChip=1
+
