@@ -24,9 +24,15 @@ find_library(EHAL_CAMERA_LIBRARY
     NO_DEFAULT_PATH
     NO_CMAKE_FIND_ROOT_PATH
 )
-if(NOT EHAL_CAMERA_INCLUDE_DIR OR NOT EHAL_CAMERA_LIBRARY)
+find_library(EHAL_AUDIO_LIBRARY
+    NAMES ehal_audio
+    PATHS "${EHAL_CAMERA_SDK_DIR}/lib"
+    NO_DEFAULT_PATH
+    NO_CMAKE_FIND_ROOT_PATH
+)
+if(NOT EHAL_CAMERA_INCLUDE_DIR OR NOT EHAL_CAMERA_LIBRARY OR NOT EHAL_AUDIO_LIBRARY)
     message(FATAL_ERROR
-        "ehal_camera.h or libehal_camera.so was not found in EHAL_CAMERA_SDK_DIR")
+        "ehal camera/audio headers or libraries were not found in EHAL_CAMERA_SDK_DIR")
 endif()
 
 set(EHAL_CAMERA_DEVENV_DIR "${EHAL_CAMERA_SDK_DIR}/docs/开发环境")
@@ -46,6 +52,7 @@ target_link_directories(camera_web_demo PRIVATE
 
 target_link_libraries(camera_web_demo PRIVATE
     "${EHAL_CAMERA_LIBRARY}"
+    "${EHAL_AUDIO_LIBRARY}"
     crypto
     pthread
     dl

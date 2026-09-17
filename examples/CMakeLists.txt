@@ -87,6 +87,7 @@ target_link_libraries(camera_web_demo PRIVATE
     -Wl,-rpath-link=${EHAL_SDK_LIB_DIR}
     -Wl,--no-as-needed
     ehal_camera
+    ehal_audio
     hal
     jsoncpp
     ${EHAL_CAMERA_CHIP_LINK_LIBS}

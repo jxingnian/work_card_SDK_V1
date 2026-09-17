@@ -1,4 +1,5 @@
 #include "ehal_camera.h"
+#include "ehal_audio.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -116,7 +117,32 @@ public:
             camera_ = nullptr;
             return result;
         }
-        return configure_locked(config_);
+        result = configure_locked(config_);
+        if (result != EHAL_OK) {
+            return result;
+        }
+        result = ehal_audio_create(&audio_);
+        if (result != EHAL_OK) {
+            return result;
+        }
+        ehal_audio_config_t audio_config{};
+        audio_config.default_config_path = config_.default_config_path.c_str();
+        audio_config.runtime_config_path = config_.runtime_config_path.c_str();
+        audio_config.user_config_path = config_.user_config_path.empty() ?
+            nullptr : config_.user_config_path.c_str();
+        audio_config.enable_record = 1;
+        audio_config.enable_playback = 1;
+        audio_config.ai_dev = 0;
+        audio_config.ao_dev = 0;
+        audio_config.aenc_channel = 0;
+        audio_config.sample_rate = 8000;
+        audio_config.channels = 1;
+        audio_config.bit_width = 16;
+        audio_config.samples_per_frame = 160;
+        audio_config.codec = EHAL_AUDIO_CODEC_G711A;
+        audio_config.capture_callback = on_audio_frame;
+        audio_config.user_data = this;
+        return ehal_audio_configure(audio_, &audio_config);
     }
 
     int start()
@@ -128,8 +154,64 @@ public:
         int result = ehal_camera_start(camera_);
         if (result == EHAL_OK) {
             running_ = true;
+            result = ehal_audio_start(audio_);
+            if (result != EHAL_OK) {
+                (void)ehal_camera_stop(camera_);
+                running_ = false;
+            }
         }
         return result;
+    }
+
+    int start_audio()
+    {
+        std::lock_guard<std::mutex> lock(camera_mutex_);
+        if (audio_ == nullptr) {
+            return EHAL_ERR_STATE;
+        }
+        return ehal_audio_start(audio_);
+    }
+
+    int stop_audio()
+    {
+        std::lock_guard<std::mutex> lock(camera_mutex_);
+        if (audio_ == nullptr) {
+            return EHAL_ERR_STATE;
+        }
+        return ehal_audio_stop(audio_);
+    }
+
+    int set_audio_volume(int input_volume, int output_volume, int mute)
+    {
+        std::lock_guard<std::mutex> lock(camera_mutex_);
+        if (audio_ == nullptr) {
+            return EHAL_ERR_STATE;
+        }
+        int result = ehal_audio_set_input_volume(audio_, input_volume);
+        if (result != EHAL_OK) {
+            return result;
+        }
+        result = ehal_audio_set_output_volume(audio_, output_volume);
+        if (result != EHAL_OK) {
+            return result;
+        }
+        return ehal_audio_set_output_mute(audio_, mute);
+    }
+
+    int play_audio_tone(uint32_t frequency_hz,
+                        uint32_t duration_ms,
+                        int volume_percent)
+    {
+        ehal_audio_t *audio = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(camera_mutex_);
+            audio = audio_;
+        }
+        if (audio == nullptr) {
+            return EHAL_ERR_STATE;
+        }
+        return ehal_audio_play_test_tone(audio, frequency_hz, duration_ms,
+                                         volume_percent);
     }
 
     int reconfigure(const std::map<std::string, std::string> &parameters)
@@ -250,6 +332,11 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(camera_mutex_);
+        if (audio_ != nullptr) {
+            (void)ehal_audio_stop(audio_);
+            ehal_audio_destroy(audio_);
+            audio_ = nullptr;
+        }
         if (camera_ != nullptr) {
             if (running_) {
                 (void)ehal_camera_stop(camera_);
@@ -364,6 +451,28 @@ private:
         CameraWebDemo *demo = static_cast<CameraWebDemo *>(user_data);
         if (demo != nullptr && frame != nullptr && frame->data != nullptr && frame->size > 0U) {
             demo->broadcast_frame(*frame);
+        }
+    }
+
+    static void on_audio_frame(const ehal_audio_frame_t *frame, void *user_data)
+    {
+        CameraWebDemo *demo = static_cast<CameraWebDemo *>(user_data);
+        if (demo != nullptr && frame != nullptr && frame->data != nullptr &&
+            frame->size > 0U) {
+            demo->record_audio_frame(*frame);
+        }
+    }
+
+    void record_audio_frame(const ehal_audio_frame_t &frame)
+    {
+        std::lock_guard<std::mutex> lock(audio_capture_mutex_);
+        audio_capture_.insert(audio_capture_.end(), frame.data, frame.data + frame.size);
+        constexpr size_t kMaxCaptureBytes = 512U * 1024U;
+        if (audio_capture_.size() > kMaxCaptureBytes) {
+            audio_capture_.erase(audio_capture_.begin(),
+                                 audio_capture_.begin() +
+                                     static_cast<std::ptrdiff_t>(audio_capture_.size() -
+                                                                 kMaxCaptureBytes));
         }
     }
 
@@ -673,6 +782,7 @@ private:
         std::ostringstream response;
         response << "HTTP/1.1 " << status << (status == 200 ? " OK" : " Error") << "\r\n"
                  << "Content-Type: " << content_type << "\r\n"
+                 << "Cache-Control: no-store\r\n"
                  << "Content-Length: " << body.size() << "\r\n"
                  << "Connection: close\r\n\r\n";
         std::string header = response.str();
@@ -697,6 +807,7 @@ private:
     std::string status_json() const
     {
         ehal_camera_stats_t stats{};
+        ehal_audio_stats_t audio_stats{};
         std::string codec_name;
         DemoConfig current_config;
         {
@@ -704,6 +815,9 @@ private:
             current_config = config_;
             if (camera_ != nullptr) {
                 (void)ehal_camera_get_stats(camera_, &stats);
+            }
+            if (audio_ != nullptr) {
+                (void)ehal_audio_get_stats(audio_, &audio_stats);
             }
         }
         codec_name = current_config.codec == EHAL_VIDEO_CODEC_H264 ? "H264" : "H265";
@@ -715,6 +829,9 @@ private:
         std::ostringstream output;
         output << "{\"running\":" << (running ? "true" : "false")
                << ",\"codec\":\"" << codec_name << "\""
+               << ",\"sensor_name\":\"" << json_escape(current_config.sensor_name) << "\""
+               << ",\"pipeline_name\":\"" << json_escape(current_config.pipeline_name) << "\""
+               << ",\"channel\":" << current_config.channel
                << ",\"width\":" << current_config.width
                << ",\"height\":" << current_config.height
                << ",\"fps\":" << current_config.fps
@@ -724,15 +841,38 @@ private:
                << ",\"profile\":" << current_config.profile
                << ",\"min_qp\":" << current_config.min_qp
                << ",\"max_qp\":" << current_config.max_qp
+               << ",\"vpss_nr\":" << current_config.vpss_nr
+               << ",\"vpss_sharpen\":" << current_config.vpss_sharpen
+               << ",\"vpss_iesharp\":" << current_config.vpss_iesharp
                << ",\"vi_width\":" << current_config.vi_width
                << ",\"vi_height\":" << current_config.vi_height
                << ",\"vi_fps\":" << current_config.vi_fps
                << ",\"vi_bit_width\":" << current_config.vi_bit_width
+               << ",\"vi_wdr\":" << current_config.vi_wdr
+               << ",\"vi_nr\":" << current_config.vi_nr
+               << ",\"vi_sharpen\":" << current_config.vi_sharpen
+               << ",\"default_config_path\":\""
+               << json_escape(current_config.default_config_path) << "\""
+               << ",\"runtime_config_path\":\""
+               << json_escape(current_config.runtime_config_path) << "\""
+               << ",\"user_config_path\":\""
+               << json_escape(current_config.user_config_path) << "\""
                << ",\"video_frames\":" << stats.video_frames
                << ",\"video_bytes\":" << stats.video_bytes
+               << ",\"audio_capture_frames\":" << audio_stats.capture_frames
+               << ",\"audio_capture_bytes\":" << audio_stats.capture_bytes
+               << ",\"audio_playback_frames\":" << audio_stats.playback_frames
+               << ",\"audio_playback_bytes\":" << audio_stats.playback_bytes
+               << ",\"audio_capture_buffer_bytes\":" << audio_capture_size()
                << ",\"websocket_clients\":" << websocket_client_count()
                << "}";
         return output.str();
+    }
+
+    size_t audio_capture_size() const
+    {
+        std::lock_guard<std::mutex> lock(audio_capture_mutex_);
+        return audio_capture_.size();
     }
 
     size_t websocket_client_count() const
@@ -867,6 +1007,62 @@ private:
                 "{\"code\":0,\"message\":\"success\"}" : error_json(result);
             send_http_response(socket_fd, result == EHAL_OK ? 200 : 400,
                                "application/json", output);
+        } else if (method == "POST" && path == "/api/audio/start") {
+            int result = start_audio();
+            std::string output = result == EHAL_OK ?
+                "{\"code\":0,\"message\":\"success\"}" :
+                "{\"code\":" + std::to_string(result) + ",\"message\":\"" +
+                    ehal_audio_error_string(result) + "\"}";
+            send_http_response(socket_fd, result == EHAL_OK ? 200 : 400,
+                               "application/json", output);
+        } else if (method == "POST" && path == "/api/audio/stop") {
+            int result = stop_audio();
+            std::string output = result == EHAL_OK ?
+                "{\"code\":0,\"message\":\"success\"}" :
+                "{\"code\":" + std::to_string(result) + ",\"message\":\"" +
+                    ehal_audio_error_string(result) + "\"}";
+            send_http_response(socket_fd, result == EHAL_OK ? 200 : 400,
+                               "application/json", output);
+        } else if (method == "POST" && path == "/api/audio/volume") {
+            std::map<std::string, std::string> form = parse_form(body);
+            uint32_t input_volume = 30U;
+            uint32_t output_volume = 80U;
+            uint32_t mute = 0U;
+            int result = (!parse_unsigned(form, "input_volume", 0U, 100U, &input_volume) ||
+                          !parse_unsigned(form, "output_volume", 0U, 100U, &output_volume) ||
+                          !parse_unsigned(form, "mute", 0U, 1U, &mute)) ?
+                EHAL_ERR_PARAM :
+                set_audio_volume(static_cast<int>(input_volume),
+                                 static_cast<int>(output_volume),
+                                 static_cast<int>(mute));
+            std::string output = result == EHAL_OK ?
+                "{\"code\":0,\"message\":\"success\"}" :
+                "{\"code\":" + std::to_string(result) + ",\"message\":\"" +
+                    ehal_audio_error_string(result) + "\"}";
+            send_http_response(socket_fd, result == EHAL_OK ? 200 : 400,
+                               "application/json", output);
+        } else if (method == "POST" && path == "/api/audio/tone") {
+            std::map<std::string, std::string> form = parse_form(body);
+            uint32_t frequency = 1000U;
+            uint32_t duration = 1000U;
+            uint32_t volume = 40U;
+            int result = (!parse_unsigned(form, "frequency_hz", 100U, 8000U, &frequency) ||
+                          !parse_unsigned(form, "duration_ms", 100U, 10000U, &duration) ||
+                          !parse_unsigned(form, "volume", 0U, 100U, &volume)) ?
+                EHAL_ERR_PARAM :
+                play_audio_tone(frequency, duration, static_cast<int>(volume));
+            std::string output = result == EHAL_OK ?
+                "{\"code\":0,\"message\":\"success\"}" :
+                "{\"code\":" + std::to_string(result) + ",\"message\":\"" +
+                    ehal_audio_error_string(result) + "\"}";
+            send_http_response(socket_fd, result == EHAL_OK ? 200 : 400,
+                               "application/json", output);
+        } else if (method == "POST" && path == "/api/audio/clear") {
+            clear_audio_capture();
+            send_http_response(socket_fd, 200, "application/json",
+                               "{\"code\":0,\"message\":\"success\"}");
+        } else if (method == "GET" && path == "/api/audio/capture") {
+            send_audio_capture(socket_fd);
         } else if (method == "GET" && path == "/snapshot.jpg") {
             send_snapshot(socket_fd);
         } else {
@@ -907,6 +1103,37 @@ private:
         }
         send_file(socket_fd, path, "image/jpeg");
         (void)unlink(path.c_str());
+    }
+
+    void clear_audio_capture()
+    {
+        std::lock_guard<std::mutex> lock(audio_capture_mutex_);
+        audio_capture_.clear();
+    }
+
+    void send_audio_capture(int socket_fd)
+    {
+        std::vector<uint8_t> data;
+        {
+            std::lock_guard<std::mutex> lock(audio_capture_mutex_);
+            data = audio_capture_;
+        }
+        if (data.empty()) {
+            send_http_response(socket_fd, 404, "text/plain; charset=utf-8",
+                               "No audio captured\n");
+            return;
+        }
+        std::ostringstream response;
+        response << "HTTP/1.1 200 OK\r\n"
+                 << "Content-Type: application/octet-stream\r\n"
+                 << "Content-Disposition: attachment; filename=\"capture.g711a\"\r\n"
+                 << "Content-Length: " << data.size() << "\r\n"
+                 << "Connection: close\r\n\r\n";
+        std::string header = response.str();
+        (void)send_all(socket_fd,
+                       reinterpret_cast<const uint8_t *>(header.data()),
+                       header.size());
+        (void)send_all(socket_fd, data.data(), data.size());
     }
 
     static bool parse_unsigned(const std::map<std::string, std::string> &parameters,
@@ -1081,12 +1308,15 @@ private:
     }
 
     ehal_camera_t *camera_ = nullptr;
+    ehal_audio_t *audio_ = nullptr;
     DemoConfig config_;
     mutable std::mutex camera_mutex_;
     bool running_ = false;
     std::atomic<int> server_fd_{-1};
     mutable std::mutex clients_mutex_;
     std::vector<std::shared_ptr<WebSocketClient>> clients_;
+    mutable std::mutex audio_capture_mutex_;
+    std::vector<uint8_t> audio_capture_;
     std::atomic<uint64_t> frame_count_{0U};
     std::atomic<bool> last_key_frame_{false};
 };

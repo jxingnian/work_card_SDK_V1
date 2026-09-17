@@ -115,6 +115,34 @@
         <button type="submit">应用配置并重启视频</button>
       </form>
       <p id="result" class="hint"></p>
+      <h2>音频配置</h2>
+      <form id="audioConfig">
+        <label>输入音量
+          <input name="input_volume" type="number" min="0" max="100" value="30">
+        </label>
+        <label>输出音量
+          <input name="output_volume" type="number" min="0" max="100" value="80">
+        </label>
+        <label>静音
+          <select name="mute"><option value="0" selected>off</option><option value="1">on</option></select>
+        </label>
+        <label>测试音频率
+          <input name="frequency_hz" type="number" min="100" max="8000" value="1000">
+        </label>
+        <label>测试音时长
+          <input name="duration_ms" type="number" min="100" max="10000" value="1000">
+        </label>
+        <label>测试音音量
+          <input name="volume" type="number" min="0" max="100" value="40">
+        </label>
+        <button type="button" id="audioVolume">应用音频音量</button>
+        <button type="button" id="audioTone">播放测试音频</button>
+        <button type="button" class="secondary" id="audioStart">启动音频</button>
+        <button type="button" class="secondary" id="audioStop">停止音频</button>
+        <button type="button" class="secondary" id="audioClear">清空采集</button>
+        <button type="button" class="secondary" id="audioDownload">下载采集</button>
+      </form>
+      <p id="audioResult" class="hint"></p>
       <h2>运行状态</h2>
       <div id="status" class="status">读取中……</div>
     </section>
@@ -126,6 +154,7 @@ const context = canvas.getContext('2d');
 const message = document.getElementById('message');
 const status = document.getElementById('status');
 const configForm = document.getElementById('config');
+const audioForm = document.getElementById('audioConfig');
 let decoder = null;
 let socket = null;
 
@@ -164,8 +193,16 @@ function setFormValue(name, value) {
   field.value = String(value);
 }
 
+function settingValue(value) {
+  if (value === -1) return 'auto';
+  return String(value);
+}
+
 function syncFormFromStatus(value) {
   [
+    'sensor_name',
+    'pipeline_name',
+    'channel',
     'codec',
     'width',
     'height',
@@ -179,8 +216,19 @@ function syncFormFromStatus(value) {
     'vi_width',
     'vi_height',
     'vi_fps',
-    'vi_bit_width'
+    'vi_bit_width',
+    'default_config_path',
+    'runtime_config_path',
+    'user_config_path'
   ].forEach(name => setFormValue(name, value[name]));
+  [
+    'vpss_nr',
+    'vpss_sharpen',
+    'vpss_iesharp',
+    'vi_wdr',
+    'vi_nr',
+    'vi_sharpen'
+  ].forEach(name => setFormValue(name, settingValue(value[name])));
 }
 
 function resizeCanvasToFrame(frame) {
@@ -199,6 +247,7 @@ function connectStream() {
   }
   if (socket) socket.close();
   closeDecoder();
+  context.clearRect(0, 0, canvas.width, canvas.height);
   const codec = selectedCodec();
   socket = new WebSocket(`ws://${location.host}/ws`);
   socket.binaryType = 'arraybuffer';
@@ -253,6 +302,49 @@ configForm.addEventListener('submit', async event => {
     connectStream();
     refreshStatus();
   }
+});
+
+async function postAudio(path, fields) {
+  const body = new URLSearchParams(fields || new FormData(audioForm));
+  const response = await fetch(path, { method: 'POST', body });
+  const result = await response.json();
+  document.getElementById('audioResult').textContent =
+    result.code === 0 ? result.message : JSON.stringify(result, null, 2);
+  refreshStatus();
+}
+
+document.getElementById('audioVolume').addEventListener('click', () => {
+  const form = new FormData(audioForm);
+  postAudio('/api/audio/volume', {
+    input_volume: form.get('input_volume'),
+    output_volume: form.get('output_volume'),
+    mute: form.get('mute')
+  });
+});
+
+document.getElementById('audioTone').addEventListener('click', () => {
+  const form = new FormData(audioForm);
+  postAudio('/api/audio/tone', {
+    frequency_hz: form.get('frequency_hz'),
+    duration_ms: form.get('duration_ms'),
+    volume: form.get('volume')
+  });
+});
+
+document.getElementById('audioStart').addEventListener('click', () => {
+  postAudio('/api/audio/start', {});
+});
+
+document.getElementById('audioStop').addEventListener('click', () => {
+  postAudio('/api/audio/stop', {});
+});
+
+document.getElementById('audioClear').addEventListener('click', () => {
+  postAudio('/api/audio/clear', {});
+});
+
+document.getElementById('audioDownload').addEventListener('click', () => {
+  window.open('/api/audio/capture', '_blank');
 });
 
 document.getElementById('snapshot').addEventListener('click', () => {
