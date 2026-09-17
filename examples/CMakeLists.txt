@@ -85,9 +85,14 @@ target_link_libraries(camera_demo PRIVATE
 )
 target_link_libraries(camera_web_demo PRIVATE
     -Wl,-rpath-link=${EHAL_SDK_LIB_DIR}
+    -Wl,--no-as-needed
     ehal_camera
+    hal
+    jsoncpp
+    ${EHAL_CAMERA_CHIP_LINK_LIBS}
     ssl
     crypto
+    -Wl,--as-needed
     pthread
     dl
     m

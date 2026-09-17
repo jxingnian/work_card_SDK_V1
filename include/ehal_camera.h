@@ -15,6 +15,27 @@ extern "C" {
 
 #define EHAL_CAMERA_MAX_CHANNELS 4
 
+#define EHAL_CAMERA_CFG_WIDTH        (1U << 0)
+#define EHAL_CAMERA_CFG_HEIGHT       (1U << 1)
+#define EHAL_CAMERA_CFG_FPS          (1U << 2)
+#define EHAL_CAMERA_CFG_BITRATE      (1U << 3)
+#define EHAL_CAMERA_CFG_CODEC        (1U << 4)
+#define EHAL_CAMERA_CFG_GOP          (1U << 5)
+#define EHAL_CAMERA_CFG_RC_MODE      (1U << 6)
+#define EHAL_CAMERA_CFG_PROFILE      (1U << 7)
+#define EHAL_CAMERA_CFG_MIN_QP       (1U << 8)
+#define EHAL_CAMERA_CFG_MAX_QP       (1U << 9)
+#define EHAL_CAMERA_CFG_VPSS_NR      (1U << 10)
+#define EHAL_CAMERA_CFG_VPSS_SHARPEN (1U << 11)
+#define EHAL_CAMERA_CFG_VPSS_IESHARP (1U << 12)
+#define EHAL_CAMERA_CFG_VI_WIDTH     (1U << 13)
+#define EHAL_CAMERA_CFG_VI_HEIGHT    (1U << 14)
+#define EHAL_CAMERA_CFG_VI_FPS       (1U << 15)
+#define EHAL_CAMERA_CFG_VI_BIT_WIDTH (1U << 16)
+#define EHAL_CAMERA_CFG_VI_WDR       (1U << 17)
+#define EHAL_CAMERA_CFG_VI_NR        (1U << 18)
+#define EHAL_CAMERA_CFG_VI_SHARPEN   (1U << 19)
+
 /** SDK 通用返回码。 */
 /** 视频编码格式。 */
 typedef enum {
@@ -45,11 +66,29 @@ typedef void (*ehal_video_frame_callback_t)(
 /** 单个视频通道配置。 */
 typedef struct {
     int channel;
+    uint32_t config_mask;
     uint32_t width;
     uint32_t height;
     uint32_t fps;
     uint32_t bitrate_kbps;
+    uint32_t gop;
+    uint32_t rc_mode;
+    uint32_t profile;
+    uint32_t min_qp;
+    uint32_t max_qp;
     ehal_video_codec_t codec;
+    uint32_t vpss_width;
+    uint32_t vpss_height;
+    int vpss_nr;
+    int vpss_sharpen;
+    int vpss_iesharp;
+    uint32_t vi_width;
+    uint32_t vi_height;
+    uint32_t vi_fps;
+    uint32_t vi_bit_width;
+    int vi_wdr;
+    int vi_nr;
+    int vi_sharpen;
 } ehal_video_channel_config_t;
 
 /** 摄像头实例配置。 */
@@ -74,11 +113,24 @@ typedef struct {
     uint64_t callback_errors;
 } ehal_camera_stats_t;
 
+typedef struct {
+    int code;
+    int hal_error;
+    ehal_camera_stage_e stage;
+    int channel;
+    uint32_t requested_width;
+    uint32_t requested_height;
+    uint32_t requested_fps;
+    uint32_t requested_bitrate_kbps;
+    char message[160];
+} ehal_camera_error_detail_t;
+
 /** 摄像头实例句柄，不透明类型。 */
 typedef struct ehal_camera ehal_camera_t;
 
 const char *ehal_camera_version(void);
 const char *ehal_camera_error_string(int code);
+const char *ehal_camera_stage_string(ehal_camera_stage_e stage);
 
 int ehal_camera_create(ehal_camera_t **camera);
 int ehal_camera_configure(ehal_camera_t *camera,
@@ -99,6 +151,8 @@ int ehal_camera_snapshot(ehal_camera_t *camera,
                          const char *jpeg_path);
 int ehal_camera_get_stats(ehal_camera_t *camera,
                           ehal_camera_stats_t *stats);
+int ehal_camera_get_last_error(ehal_camera_t *camera,
+                               ehal_camera_error_detail_t *detail);
 
 #ifdef __cplusplus
 }

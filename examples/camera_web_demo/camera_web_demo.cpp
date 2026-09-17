@@ -68,10 +68,26 @@ struct DemoConfig {
     std::string pipeline_name = "video_record";
     std::string sensor_name = "sc2356";
     int channel = 0;
+    uint32_t config_mask = 0U;
     uint32_t width = 1600U;
     uint32_t height = 1200U;
     uint32_t fps = 25U;
     uint32_t bitrate_kbps = 2048U;
+    uint32_t gop = 60U;
+    uint32_t rc_mode = 2U;
+    uint32_t profile = 2U;
+    uint32_t min_qp = 10U;
+    uint32_t max_qp = 51U;
+    int vpss_nr = -1;
+    int vpss_sharpen = -1;
+    int vpss_iesharp = -1;
+    uint32_t vi_width = 0U;
+    uint32_t vi_height = 0U;
+    uint32_t vi_fps = 0U;
+    uint32_t vi_bit_width = 0U;
+    int vi_wdr = -1;
+    int vi_nr = -1;
+    int vi_sharpen = -1;
     ehal_video_codec_t codec = EHAL_VIDEO_CODEC_H264;
     int port = kDefaultPort;
     std::string web_root = "web";
@@ -131,6 +147,7 @@ public:
             return EHAL_ERR_STATE;
         }
         bool was_running = running_;
+        DemoConfig old_config = config_;
         if (was_running) {
             int stop_result = ehal_camera_stop(camera_);
             if (stop_result != EHAL_OK) {
@@ -141,17 +158,30 @@ public:
 
         int configure_result = configure_locked(next_config);
         if (configure_result != EHAL_OK) {
+            if (was_running) {
+                (void)configure_locked(old_config);
+                if (ehal_camera_start(camera_) == EHAL_OK) {
+                    running_ = true;
+                    config_ = old_config;
+                }
+            }
             return configure_result;
         }
-        config_ = next_config;
 
         if (was_running) {
             int start_result = ehal_camera_start(camera_);
             if (start_result != EHAL_OK) {
-                return start_result;
+                int failed_result = start_result;
+                (void)configure_locked(old_config);
+                if (ehal_camera_start(camera_) == EHAL_OK) {
+                    running_ = true;
+                    config_ = old_config;
+                }
+                return failed_result;
             }
             running_ = true;
         }
+        config_ = next_config;
         return EHAL_OK;
     }
 
@@ -232,11 +262,29 @@ private:
         camera_config.sensor_name = config.sensor_name.c_str();
         camera_config.channel_count = 1U;
         camera_config.channels[0].channel = config.channel;
+        camera_config.channels[0].config_mask = config.config_mask;
         camera_config.channels[0].width = config.width;
         camera_config.channels[0].height = config.height;
         camera_config.channels[0].fps = config.fps;
         camera_config.channels[0].bitrate_kbps = config.bitrate_kbps;
+        camera_config.channels[0].gop = config.gop;
+        camera_config.channels[0].rc_mode = config.rc_mode;
+        camera_config.channels[0].profile = config.profile;
+        camera_config.channels[0].min_qp = config.min_qp;
+        camera_config.channels[0].max_qp = config.max_qp;
         camera_config.channels[0].codec = config.codec;
+        camera_config.channels[0].vpss_width = config.width;
+        camera_config.channels[0].vpss_height = config.height;
+        camera_config.channels[0].vpss_nr = config.vpss_nr;
+        camera_config.channels[0].vpss_sharpen = config.vpss_sharpen;
+        camera_config.channels[0].vpss_iesharp = config.vpss_iesharp;
+        camera_config.channels[0].vi_width = config.vi_width;
+        camera_config.channels[0].vi_height = config.vi_height;
+        camera_config.channels[0].vi_fps = config.vi_fps;
+        camera_config.channels[0].vi_bit_width = config.vi_bit_width;
+        camera_config.channels[0].vi_wdr = config.vi_wdr;
+        camera_config.channels[0].vi_nr = config.vi_nr;
+        camera_config.channels[0].vi_sharpen = config.vi_sharpen;
         camera_config.video_callback = on_video_frame;
         camera_config.user_data = this;
         return ehal_camera_configure(camera_, &camera_config);
@@ -602,6 +650,15 @@ private:
                << ",\"height\":" << current_config.height
                << ",\"fps\":" << current_config.fps
                << ",\"bitrate_kbps\":" << current_config.bitrate_kbps
+               << ",\"gop\":" << current_config.gop
+               << ",\"rc_mode\":" << current_config.rc_mode
+               << ",\"profile\":" << current_config.profile
+               << ",\"min_qp\":" << current_config.min_qp
+               << ",\"max_qp\":" << current_config.max_qp
+               << ",\"vi_width\":" << current_config.vi_width
+               << ",\"vi_height\":" << current_config.vi_height
+               << ",\"vi_fps\":" << current_config.vi_fps
+               << ",\"vi_bit_width\":" << current_config.vi_bit_width
                << ",\"video_frames\":" << stats.video_frames
                << ",\"video_bytes\":" << stats.video_bytes
                << ",\"websocket_clients\":" << websocket_client_count()
@@ -737,11 +794,10 @@ private:
             send_http_response(socket_fd, 200, "application/json", status_json());
         } else if (method == "POST" && path == "/api/config") {
             int result = reconfigure(parse_form(body));
-            std::ostringstream output;
-            output << "{\"code\":" << result << ",\"message\":\""
-                   << json_escape(ehal_camera_error_string(result)) << "\"}";
+            std::string output = result == EHAL_OK ?
+                "{\"code\":0,\"message\":\"success\"}" : error_json(result);
             send_http_response(socket_fd, result == EHAL_OK ? 200 : 400,
-                               "application/json", output.str());
+                               "application/json", output);
         } else if (method == "GET" && path == "/snapshot.jpg") {
             send_snapshot(socket_fd);
         } else {
@@ -828,8 +884,89 @@ private:
             !parse_unsigned(parameters, "height", 120U, 4096U, &config->height) ||
             !parse_unsigned(parameters, "fps", 1U, 60U, &config->fps) ||
             !parse_unsigned(parameters, "bitrate_kbps", 16U, 50000U,
-                            &config->bitrate_kbps)) {
+                            &config->bitrate_kbps) ||
+            !parse_unsigned(parameters, "gop", 1U, 1000U, &config->gop) ||
+            !parse_unsigned(parameters, "rc_mode", 0U, 3U, &config->rc_mode) ||
+            !parse_unsigned(parameters, "profile", 0U, 3U, &config->profile) ||
+            !parse_unsigned(parameters, "min_qp", 0U, 51U, &config->min_qp) ||
+            !parse_unsigned(parameters, "max_qp", 0U, 51U, &config->max_qp)) {
             return false;
+        }
+        if (!parse_unsigned(parameters, "vi_width", 0U, 4096U, &config->vi_width) ||
+            !parse_unsigned(parameters, "vi_height", 0U, 4096U, &config->vi_height) ||
+            !parse_unsigned(parameters, "vi_fps", 0U, 60U, &config->vi_fps) ||
+            !parse_unsigned(parameters, "vi_bit_width", 0U, 16U, &config->vi_bit_width)) {
+            return false;
+        }
+        auto parse_bool_setting = [&parameters](const char *name, int *value) {
+            auto iterator = parameters.find(name);
+            if (iterator == parameters.end()) {
+                return true;
+            }
+            if (iterator->second == "auto") {
+                *value = -1;
+                return true;
+            }
+            if (iterator->second == "0" || iterator->second == "false") {
+                *value = 0;
+                return true;
+            }
+            if (iterator->second == "1" || iterator->second == "true") {
+                *value = 1;
+                return true;
+            }
+            return false;
+        };
+        if (!parse_bool_setting("vpss_nr", &config->vpss_nr) ||
+            !parse_bool_setting("vpss_sharpen", &config->vpss_sharpen) ||
+            !parse_bool_setting("vpss_iesharp", &config->vpss_iesharp) ||
+            !parse_bool_setting("vi_wdr", &config->vi_wdr) ||
+            !parse_bool_setting("vi_nr", &config->vi_nr) ||
+            !parse_bool_setting("vi_sharpen", &config->vi_sharpen) ||
+            config->min_qp > config->max_qp) {
+            return false;
+        }
+        const std::pair<const char *, uint32_t> simple_masks[] = {
+            {"width", EHAL_CAMERA_CFG_WIDTH},
+            {"height", EHAL_CAMERA_CFG_HEIGHT},
+            {"fps", EHAL_CAMERA_CFG_FPS},
+            {"bitrate_kbps", EHAL_CAMERA_CFG_BITRATE},
+            {"gop", EHAL_CAMERA_CFG_GOP},
+            {"rc_mode", EHAL_CAMERA_CFG_RC_MODE},
+            {"profile", EHAL_CAMERA_CFG_PROFILE},
+            {"min_qp", EHAL_CAMERA_CFG_MIN_QP},
+            {"max_qp", EHAL_CAMERA_CFG_MAX_QP}
+        };
+        for (const auto &entry : simple_masks) {
+            if (parameters.find(entry.first) != parameters.end()) {
+                config->config_mask |= entry.second;
+            }
+        }
+        const std::pair<const char *, uint32_t> optional_number_masks[] = {
+            {"vi_width", EHAL_CAMERA_CFG_VI_WIDTH},
+            {"vi_height", EHAL_CAMERA_CFG_VI_HEIGHT},
+            {"vi_fps", EHAL_CAMERA_CFG_VI_FPS},
+            {"vi_bit_width", EHAL_CAMERA_CFG_VI_BIT_WIDTH}
+        };
+        for (const auto &entry : optional_number_masks) {
+            auto iterator = parameters.find(entry.first);
+            if (iterator != parameters.end() && iterator->second != "0") {
+                config->config_mask |= entry.second;
+            }
+        }
+        const std::pair<const char *, uint32_t> optional_bool_masks[] = {
+            {"vpss_nr", EHAL_CAMERA_CFG_VPSS_NR},
+            {"vpss_sharpen", EHAL_CAMERA_CFG_VPSS_SHARPEN},
+            {"vpss_iesharp", EHAL_CAMERA_CFG_VPSS_IESHARP},
+            {"vi_wdr", EHAL_CAMERA_CFG_VI_WDR},
+            {"vi_nr", EHAL_CAMERA_CFG_VI_NR},
+            {"vi_sharpen", EHAL_CAMERA_CFG_VI_SHARPEN}
+        };
+        for (const auto &entry : optional_bool_masks) {
+            auto iterator = parameters.find(entry.first);
+            if (iterator != parameters.end() && iterator->second != "auto") {
+                config->config_mask |= entry.second;
+            }
         }
         config->channel = static_cast<int>(channel);
         auto codec_iterator = parameters.find("codec");
@@ -841,11 +978,37 @@ private:
             } else {
                 return false;
             }
+            config->config_mask |= EHAL_CAMERA_CFG_CODEC;
         }
         return config->sensor_name == "sc2356" &&
                !config->pipeline_name.empty() &&
                !config->default_config_path.empty() &&
                !config->runtime_config_path.empty();
+    }
+
+    std::string error_json(int result) const
+    {
+        ehal_camera_error_detail_t detail{};
+        {
+            std::lock_guard<std::mutex> lock(camera_mutex_);
+            if (camera_ != nullptr) {
+                (void)ehal_camera_get_last_error(camera_, &detail);
+            }
+        }
+        std::ostringstream output;
+        output << "{\"code\":" << result
+               << ",\"message\":\"" << json_escape(
+                   detail.message[0] != '\0' ? detail.message :
+                   ehal_camera_error_string(result)) << "\""
+               << ",\"stage\":\"" << ehal_camera_stage_string(detail.stage) << "\""
+               << ",\"hal_error\":" << detail.hal_error
+               << ",\"channel\":" << detail.channel
+               << ",\"requested_width\":" << detail.requested_width
+               << ",\"requested_height\":" << detail.requested_height
+               << ",\"requested_fps\":" << detail.requested_fps
+               << ",\"requested_bitrate_kbps\":" << detail.requested_bitrate_kbps
+               << "}";
+        return output.str();
     }
 
     ehal_camera_t *camera_ = nullptr;
