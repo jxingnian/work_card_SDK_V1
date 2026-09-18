@@ -7,38 +7,24 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(camera_demo camera_demo.c)
 add_executable(camera_web_demo camera_web_demo/camera_web_demo.cpp)
-add_executable(wifi_demo wifi_demo.c)
-add_executable(wifi_web_demo wifi_web_demo/wifi_web_demo.cpp)
+add_executable(wifi_cli_demo wifi_cli_demo/wifi_cli_demo.cpp)
 
 set(EHAL_SDK_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 set(EHAL_SDK_LIB_DIR "${EHAL_SDK_ROOT}/lib")
 
-target_include_directories(camera_demo PRIVATE
-    "${EHAL_SDK_ROOT}/include"
-)
 target_include_directories(camera_web_demo PRIVATE
     "${EHAL_SDK_ROOT}/include"
     "${EHAL_SDK_ROOT}/include/openssl"
 )
-target_include_directories(wifi_demo PRIVATE
-    "${EHAL_SDK_ROOT}/include"
-)
-target_include_directories(wifi_web_demo PRIVATE
+target_include_directories(wifi_cli_demo PRIVATE
     "${EHAL_SDK_ROOT}/include"
 )
 
-target_link_directories(camera_demo PRIVATE
-    "${EHAL_SDK_LIB_DIR}"
-)
 target_link_directories(camera_web_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
 )
-target_link_directories(wifi_demo PRIVATE
-    "${EHAL_SDK_LIB_DIR}"
-)
-target_link_directories(wifi_web_demo PRIVATE
+target_link_directories(wifi_cli_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
 )
 
@@ -73,16 +59,6 @@ set(EHAL_CAMERA_CHIP_LINK_LIBS
     stdc++
 )
 
-target_link_libraries(camera_demo PRIVATE
-    -Wl,-rpath-link=${EHAL_SDK_LIB_DIR}
-    ehal_camera
-    hal
-    jsoncpp
-    ${EHAL_CAMERA_CHIP_LINK_LIBS}
-    pthread
-    dl
-    m
-)
 target_link_libraries(camera_web_demo PRIVATE
     -Wl,-rpath-link=${EHAL_SDK_LIB_DIR}
     -Wl,--no-as-needed
@@ -101,24 +77,14 @@ target_link_libraries(camera_web_demo PRIVATE
 target_link_options(camera_web_demo PRIVATE
     -Wl,--allow-shlib-undefined
 )
-target_link_libraries(wifi_demo PRIVATE
-    ehal_wifi
-    stdc++
-    pthread
-    dl
-    m
-)
-set_target_properties(wifi_demo PROPERTIES
-    LINKER_LANGUAGE CXX
-)
-target_link_libraries(wifi_web_demo PRIVATE
+target_link_libraries(wifi_cli_demo PRIVATE
     ehal_wifi
     pthread
     dl
     m
 )
 
-install(TARGETS camera_demo camera_web_demo
+install(TARGETS camera_web_demo wifi_cli_demo
     RUNTIME DESTINATION bin
 )
 

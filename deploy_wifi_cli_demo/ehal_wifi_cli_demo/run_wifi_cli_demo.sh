@@ -1,0 +1,6 @@
+#!/bin/sh
+
+ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
+export LD_LIBRARY_PATH="$ROOT_DIR/lib:${LD_LIBRARY_PATH:-}"
+
+exec "$ROOT_DIR/bin/wifi_cli_demo" "$@"
