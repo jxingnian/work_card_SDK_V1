@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(camera_web_demo camera_web_demo/camera_web_demo.cpp)
 add_executable(wifi_cli_demo wifi_cli_demo/wifi_cli_demo.cpp)
+add_executable(mic_web_demo mic_web_demo/mic_web_demo.cpp)
 
 set(EHAL_SDK_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 set(EHAL_SDK_LIB_DIR "${EHAL_SDK_ROOT}/lib")
@@ -20,11 +21,17 @@ target_include_directories(camera_web_demo PRIVATE
 target_include_directories(wifi_cli_demo PRIVATE
     "${EHAL_SDK_ROOT}/include"
 )
+target_include_directories(mic_web_demo PRIVATE
+    "${EHAL_SDK_ROOT}/include"
+)
 
 target_link_directories(camera_web_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
 )
 target_link_directories(wifi_cli_demo PRIVATE
+    "${EHAL_SDK_LIB_DIR}"
+)
+target_link_directories(mic_web_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
 )
 
@@ -83,8 +90,45 @@ target_link_libraries(wifi_cli_demo PRIVATE
     dl
     m
 )
+target_link_libraries(mic_web_demo PRIVATE
+    -Wl,-rpath-link=${EHAL_SDK_LIB_DIR}
+    ehal_audio
+    hal
+    jsoncpp
+    ss_mpi
+    ss_mpi_sysbind
+    ss_mpi_sysmem
+    ss_mpi_audio
+    ss_mpi_audio_adp
+    voice_engine
+    upvqe
+    dnvqe
+    opus
+    vqe_res
+    vqe_record
+    vqe_hpf
+    vqe_anr
+    vqe_aec
+    vqe_agc
+    vqe_eq
+    vqe_talkv2
+    aac_dec
+    aac_enc
+    aac_comm
+    aac_sbr_dec
+    aac_sbr_enc
+    mp3_enc
+    mp3_lame
+    mp3_dec
+    pthread
+    dl
+    m
+)
+target_link_options(mic_web_demo PRIVATE
+    -Wl,--allow-shlib-undefined
+)
 
-install(TARGETS camera_web_demo wifi_cli_demo
+install(TARGETS camera_web_demo wifi_cli_demo mic_web_demo
     RUNTIME DESTINATION bin
 )
 

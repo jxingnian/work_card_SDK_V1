@@ -16,7 +16,8 @@ extern "C" {
 typedef enum {
     EHAL_AUDIO_CODEC_G711A = 0,
     EHAL_AUDIO_CODEC_G711U = 1,
-    EHAL_AUDIO_CODEC_PCM = 2
+    EHAL_AUDIO_CODEC_PCM = 2,
+    EHAL_AUDIO_CODEC_OPUS = 3
 } ehal_audio_codec_t;
 
 typedef struct {
