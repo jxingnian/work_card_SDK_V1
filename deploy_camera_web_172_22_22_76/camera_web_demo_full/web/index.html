@@ -157,6 +157,8 @@ const configForm = document.getElementById('config');
 const audioForm = document.getElementById('audioConfig');
 let decoder = null;
 let socket = null;
+let reconnectTimer = null;
+let reconnectEnabled = true;
 
 function selectedCodec() {
   return document.querySelector('[name=codec]').value;
@@ -183,6 +185,14 @@ function closeDecoder() {
     try { decoder.close(); } catch (_) {}
     decoder = null;
   }
+}
+
+function scheduleReconnect() {
+  if (!reconnectEnabled || reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectStream();
+  }, 1000);
 }
 
 function setFormValue(name, value) {
@@ -245,15 +255,21 @@ function connectStream() {
     message.textContent = '当前浏览器不支持 WebCodecs，请使用较新的 Chromium 浏览器。';
     return;
   }
+  reconnectEnabled = false;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   if (socket) socket.close();
+  reconnectEnabled = true;
   closeDecoder();
   context.clearRect(0, 0, canvas.width, canvas.height);
   const codec = selectedCodec();
   socket = new WebSocket(`ws://${location.host}/ws`);
   socket.binaryType = 'arraybuffer';
   socket.onopen = () => { message.textContent = `WebSocket 已连接，等待 ${codec} 关键帧……`; };
-  socket.onclose = () => { message.textContent = 'WebSocket 已断开'; };
-  socket.onerror = () => { message.textContent = 'WebSocket 连接失败'; };
+  socket.onclose = () => { message.textContent = 'WebSocket 已断开，正在重连……'; closeDecoder(); scheduleReconnect(); };
+  socket.onerror = () => { message.textContent = 'WebSocket 连接失败，正在重连……'; };
   socket.onmessage = event => {
     const bytes = new Uint8Array(event.data);
     if (!decoder) {

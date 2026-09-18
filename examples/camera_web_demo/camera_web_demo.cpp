@@ -54,8 +54,8 @@ struct WebSocketClient {
         : fd(socket_fd)
     {
         timeval timeout{};
-        timeout.tv_sec = 0;
-        timeout.tv_usec = 100000;
+        timeout.tv_sec = 3;
+        timeout.tv_usec = 0;
         (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
     }
 
@@ -505,6 +505,9 @@ private:
         while (sent_size < size) {
             ssize_t result = send(socket_fd, data + sent_size, size - sent_size, MSG_NOSIGNAL);
             if (result <= 0) {
+                if (result < 0 && errno == EINTR) {
+                    continue;
+                }
                 return false;
             }
             sent_size += static_cast<size_t>(result);
@@ -539,6 +542,9 @@ private:
         std::lock_guard<std::mutex> lock(client->send_mutex);
         if (!send_all(client->fd, header.data(), header.size()) ||
             !send_all(client->fd, data, size)) {
+            std::cerr << "websocket send failed fd=" << client->fd
+                      << " errno=" << errno << " " << std::strerror(errno)
+                      << " payload=" << size << std::endl;
             if (!client->closed.exchange(true)) {
                 shutdown(client->fd, SHUT_RDWR);
                 close(client->fd);
