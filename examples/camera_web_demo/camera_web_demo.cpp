@@ -238,40 +238,9 @@ public:
             next_config.sensor_name = config_.sensor_name;
             return apply_runtime_config_locked(parameters, next_config);
         }
-        bool was_running = running_;
-        DemoConfig old_config = config_;
-        if (was_running) {
-            int stop_result = ehal_camera_stop(camera_);
-            if (stop_result != EHAL_OK) {
-                return stop_result;
-            }
-            running_ = false;
-        }
-
         int configure_result = configure_locked(next_config);
         if (configure_result != EHAL_OK) {
-            if (was_running) {
-                (void)configure_locked(old_config);
-                if (ehal_camera_start(camera_) == EHAL_OK) {
-                    running_ = true;
-                    config_ = old_config;
-                }
-            }
             return configure_result;
-        }
-
-        if (was_running) {
-            int start_result = ehal_camera_start(camera_);
-            if (start_result != EHAL_OK) {
-                int failed_result = start_result;
-                (void)configure_locked(old_config);
-                if (ehal_camera_start(camera_) == EHAL_OK) {
-                    running_ = true;
-                    config_ = old_config;
-                }
-                return failed_result;
-            }
-            running_ = true;
         }
         config_ = next_config;
         return EHAL_OK;
@@ -398,7 +367,6 @@ private:
             next_config.sensor_name != config_.sensor_name ||
             next_config.channel != config_.channel ||
             next_config.codec != config_.codec ||
-            next_config.fps != config_.fps ||
             next_config.gop != config_.gop ||
             next_config.rc_mode != config_.rc_mode ||
             next_config.profile != config_.profile ||
@@ -430,6 +398,14 @@ private:
             int result = ehal_camera_set_resolution(camera_, next_config.channel,
                                                     next_config.width,
                                                     next_config.height);
+            if (result != EHAL_OK) {
+                return result;
+            }
+        }
+        if (parameters.find("fps") != parameters.end() &&
+            next_config.fps != config_.fps) {
+            int result = ehal_camera_set_fps(camera_, next_config.channel,
+                                            next_config.fps);
             if (result != EHAL_OK) {
                 return result;
             }

@@ -146,6 +146,9 @@ int ehal_camera_request_idr(ehal_camera_t *camera, int channel);
 int ehal_camera_set_bitrate(ehal_camera_t *camera,
                             int channel,
                             uint32_t bitrate_kbps);
+int ehal_camera_set_fps(ehal_camera_t *camera,
+                        int channel,
+                        uint32_t fps);
 int ehal_camera_set_resolution(ehal_camera_t *camera,
                                int channel,
                                uint32_t width,
