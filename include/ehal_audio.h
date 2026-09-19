@@ -46,6 +46,8 @@ typedef struct {
     int ai_dev;
     int ao_dev;
     int aenc_channel;
+    int input_volume;
+    int output_volume;
     uint32_t sample_rate;
     uint8_t channels;
     uint8_t bit_width;

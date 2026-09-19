@@ -311,6 +311,8 @@ public:
             ehal_audio_destroy(audio_);
             audio_ = nullptr;
         }
+        record_enabled_ = enable_record != 0;
+        playback_enabled_ = enable_playback != 0;
         int ret = ehal_audio_create(&audio_);
         if (ret != EHAL_OK) {
             return ret;
@@ -325,6 +327,8 @@ public:
         audio_config.enable_playback = enable_playback;
         audio_config.ai_dev = 0;
         audio_config.aenc_channel = 0;
+        audio_config.input_volume = input_volume_;
+        audio_config.output_volume = output_volume_;
         audio_config.playback_pipeline_name =
             enable_playback && codec == EHAL_AUDIO_CODEC_PCM ?
                 "audio_playback_pcm" : "audio_playback";
@@ -586,7 +590,12 @@ private:
         }
         int ret = ehal_audio_start(audio_);
         if (ret == EHAL_OK) {
-            (void)ehal_audio_set_output_volume(audio_, output_volume_);
+            if (record_enabled_) {
+                (void)ehal_audio_set_input_volume(audio_, input_volume_);
+            }
+            if (playback_enabled_) {
+                (void)ehal_audio_set_output_volume(audio_, output_volume_);
+            }
             running_ = true;
         }
         return ret;
@@ -609,7 +618,10 @@ private:
     std::mutex playback_mutex_;
     std::thread playback_thread_;
     bool running_ = false;
+    bool record_enabled_ = false;
+    bool playback_enabled_ = false;
     std::atomic<bool> playback_running_{false};
+    int input_volume_ = 100;
     int output_volume_ = 100;
     ehal_audio_codec_t active_codec_ = EHAL_AUDIO_CODEC_PCM;
 };
