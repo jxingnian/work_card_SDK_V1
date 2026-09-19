@@ -81,10 +81,15 @@ int ehal_audio_set_capture_callback(ehal_audio_t *audio,
 int ehal_audio_set_input_volume(ehal_audio_t *audio, int volume);
 int ehal_audio_set_output_volume(ehal_audio_t *audio, int volume);
 int ehal_audio_set_output_mute(ehal_audio_t *audio, int mute);
+int ehal_audio_set_amplifier_enabled(ehal_audio_t *audio, int enabled);
 int ehal_audio_play_pcm(ehal_audio_t *audio,
                         const void *pcm,
                         uint32_t bytes,
                         int timeout_ms);
+int ehal_audio_play_wav_file(ehal_audio_t *audio,
+                             const char *path,
+                             int timeout_ms);
+int ehal_audio_stop_playback(ehal_audio_t *audio);
 int ehal_audio_play_test_tone(ehal_audio_t *audio,
                               uint32_t frequency_hz,
                               uint32_t duration_ms,

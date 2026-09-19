@@ -201,6 +201,13 @@
             ]
         },
         {
+            "name": "audio_playback_pcm",
+            "auto_bind": true,
+            "nodes": [
+                { "mod": "AO",   "dev": 0, "chn": 0 }
+            ]
+        },
+        {
             "name": "video_snapshot",
             "auto_bind": true,
             "nodes": [

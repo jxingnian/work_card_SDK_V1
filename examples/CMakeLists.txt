@@ -140,8 +140,29 @@ install(DIRECTORY camera_web_demo/web/
         PATTERN "*.js"
 )
 
+install(DIRECTORY mic_web_demo/web/
+    DESTINATION web
+    FILES_MATCHING
+        PATTERN "*.html"
+        PATTERN "*.css"
+        PATTERN "*.js"
+)
+
+install(DIRECTORY mic_web_demo/configs/
+    DESTINATION configs
+    FILES_MATCHING
+        PATTERN "*.json"
+)
+
+install(DIRECTORY mic_web_demo/audio/
+    DESTINATION audio
+    FILES_MATCHING
+        PATTERN "*.wav"
+)
+
 install(PROGRAMS
     camera_web_demo/run_camera_web_demo.sh
     camera_web_demo/fix_board_sensor_sc2356.sh
+    mic_web_demo/run_mic_web_demo.sh
     DESTINATION .
 )

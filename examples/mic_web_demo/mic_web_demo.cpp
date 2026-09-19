@@ -30,6 +30,7 @@ struct Config {
     std::string default_config = "configs/hal_default.json";
     std::string pcm_runtime_config;
     std::string opus_runtime_config;
+    std::string playback_audio = "audio/speaker_voice.wav";
 };
 
 struct AudioBuffer {
@@ -293,10 +294,18 @@ public:
 
     ~MicWebDemo()
     {
+        if (audio_ != nullptr) {
+            (void)ehal_audio_stop_playback(audio_);
+        }
+        if (playback_thread_.joinable()) {
+            playback_thread_.join();
+        }
         stop_audio();
     }
 
-    int configure_audio(ehal_audio_codec_t codec)
+    int configure_audio(ehal_audio_codec_t codec,
+                        int enable_record,
+                        int enable_playback)
     {
         if (audio_ != nullptr) {
             ehal_audio_destroy(audio_);
@@ -312,10 +321,13 @@ public:
             codec == EHAL_AUDIO_CODEC_OPUS ?
                 config_.opus_runtime_config.c_str() :
                 config_.pcm_runtime_config.c_str();
-        audio_config.enable_record = 1;
-        audio_config.enable_playback = 0;
+        audio_config.enable_record = enable_record;
+        audio_config.enable_playback = enable_playback;
         audio_config.ai_dev = 0;
         audio_config.aenc_channel = 0;
+        audio_config.playback_pipeline_name =
+            enable_playback && codec == EHAL_AUDIO_CODEC_PCM ?
+                "audio_playback_pcm" : "audio_playback";
         audio_config.sample_rate = 16000;
         audio_config.channels = 1;
         audio_config.bit_width = 16;
@@ -381,6 +393,12 @@ private:
             send_status(fd);
         } else if (path.rfind("/api/record", 0) == 0) {
             handle_record(fd, parse_seconds(path), parse_format(path));
+        } else if (path.rfind("/api/play", 0) == 0) {
+            handle_play(fd);
+        } else if (path.rfind("/api/stop", 0) == 0) {
+            handle_stop(fd);
+        } else if (path.rfind("/api/volume", 0) == 0) {
+            handle_volume(fd, parse_volume(path));
         } else {
             send_file(fd, path.size() > 1 ? path.substr(1) : "index.html");
         }
@@ -419,7 +437,20 @@ private:
 
     void handle_record(int fd, int seconds, const std::string &format)
     {
-        std::lock_guard<std::mutex> record_lock(record_mutex_);
+        std::unique_lock<std::mutex> record_lock(record_mutex_, std::try_to_lock);
+        if (!record_lock.owns_lock()) {
+            send_text(fd, 409, "text/plain; charset=utf-8",
+                      "audio operation is already running\n");
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(playback_mutex_);
+            if (playback_running_) {
+                send_text(fd, 409, "text/plain; charset=utf-8",
+                          "speaker playback is already running\n");
+                return;
+            }
+        }
         {
             std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
             audio_buffer_.encoded.clear();
@@ -429,7 +460,7 @@ private:
 
         ehal_audio_codec_t codec = format == "opus" ?
             EHAL_AUDIO_CODEC_OPUS : EHAL_AUDIO_CODEC_PCM;
-        int ret = configure_audio(codec);
+        int ret = configure_audio(codec, 1, 0);
         active_codec_ = codec;
         if (ret == EHAL_OK) {
             ret = start_audio();
@@ -460,6 +491,93 @@ private:
         }
     }
 
+    static int parse_volume(const std::string &path)
+    {
+        size_t pos = path.find("value=");
+        if (pos == std::string::npos) {
+            return 100;
+        }
+        int volume = std::atoi(path.c_str() + pos + 6U);
+        return std::max(0, std::min(100, volume));
+    }
+
+    void handle_play(int fd)
+    {
+        if (playback_running_.load(std::memory_order_acquire)) {
+            send_text(fd, 409, "text/plain; charset=utf-8",
+                      "speaker playback is already running\n");
+            return;
+        }
+        if (playback_thread_.joinable()) {
+            playback_thread_.join();
+        }
+        std::lock_guard<std::mutex> playback_lock(playback_mutex_);
+        if (playback_running_.load(std::memory_order_acquire)) {
+            send_text(fd, 409, "text/plain; charset=utf-8",
+                      "speaker playback is already running\n");
+            return;
+        }
+        if (!record_mutex_.try_lock()) {
+            send_text(fd, 409, "text/plain; charset=utf-8",
+                      "microphone recording is already running\n");
+            return;
+        }
+        record_mutex_.unlock();
+
+        int ret = configure_audio(EHAL_AUDIO_CODEC_PCM, 0, 1);
+        if (ret == EHAL_OK) {
+            ret = start_audio();
+        }
+        if (ret != EHAL_OK) {
+            send_text(fd, 500, "text/plain; charset=utf-8",
+                      std::string("speaker start failed: ") +
+                          ehal_audio_error_string(ret) + "\n");
+            return;
+        }
+
+        playback_running_.store(true, std::memory_order_release);
+        ret = ehal_audio_play_wav_file(audio_, config_.playback_audio.c_str(), 1000);
+        if (ret != EHAL_OK) {
+            std::fprintf(stderr, "speaker playback failed: %s\n",
+                         ehal_audio_error_string(ret));
+        }
+        stop_audio();
+        playback_running_.store(false, std::memory_order_release);
+        if (ret != EHAL_OK) {
+            send_text(fd, 500, "text/plain; charset=utf-8",
+                      std::string("speaker playback failed: ") +
+                          ehal_audio_error_string(ret) + "\n");
+            return;
+        }
+        ehal_audio_stats_t stats{};
+        (void)ehal_audio_get_stats(audio_, &stats);
+        send_text(fd, 200, "application/json; charset=utf-8",
+                  std::string("{\"ok\":true,\"playing\":false,\"frames\":") +
+                      std::to_string(stats.playback_frames) +
+                      ",\"bytes\":" + std::to_string(stats.playback_bytes) + "}\n");
+    }
+
+    void handle_stop(int fd)
+    {
+        int ret = ehal_audio_stop_playback(audio_);
+        send_text(fd, ret == EHAL_OK ? 200 : 500,
+                  "application/json; charset=utf-8",
+                  ret == EHAL_OK ? "{\"ok\":true,\"playing\":false}\n" :
+                                   "{\"ok\":false}\n");
+    }
+
+    void handle_volume(int fd, int volume)
+    {
+        output_volume_ = volume;
+        int ret = running_ ? ehal_audio_set_output_volume(audio_, volume) : EHAL_OK;
+        send_text(fd, ret == EHAL_OK ? 200 : 500,
+                  "application/json; charset=utf-8",
+                  ret == EHAL_OK ?
+                      std::string("{\"ok\":true,\"volume\":") +
+                          std::to_string(volume) + "}\n" :
+                      "{\"ok\":false}\n");
+    }
+
     int start_audio()
     {
         std::lock_guard<std::mutex> lock(audio_mutex_);
@@ -468,6 +586,7 @@ private:
         }
         int ret = ehal_audio_start(audio_);
         if (ret == EHAL_OK) {
+            (void)ehal_audio_set_output_volume(audio_, output_volume_);
             running_ = true;
         }
         return ret;
@@ -487,7 +606,11 @@ private:
     AudioBuffer audio_buffer_;
     std::mutex audio_mutex_;
     std::mutex record_mutex_;
+    std::mutex playback_mutex_;
+    std::thread playback_thread_;
     bool running_ = false;
+    std::atomic<bool> playback_running_{false};
+    int output_volume_ = 100;
     ehal_audio_codec_t active_codec_ = EHAL_AUDIO_CODEC_PCM;
 };
 
@@ -506,6 +629,8 @@ Config parse_args(int argc, char **argv)
             config.pcm_runtime_config = argv[++i];
         } else if (arg == "--opus-runtime-config" && i + 1 < argc) {
             config.opus_runtime_config = argv[++i];
+        } else if (arg == "--playback-audio" && i + 1 < argc) {
+            config.playback_audio = argv[++i];
         }
     }
     return config;
@@ -519,7 +644,7 @@ int main(int argc, char **argv)
     signal(SIGTERM, on_signal);
     Config config = parse_args(argc, argv);
     MicWebDemo demo(config);
-    int ret = demo.configure_audio(EHAL_AUDIO_CODEC_PCM);
+    int ret = demo.configure_audio(EHAL_AUDIO_CODEC_PCM, 1, 0);
     if (ret != EHAL_OK) {
         std::fprintf(stderr, "init audio failed: %s\n", ehal_audio_error_string(ret));
         return ret;
