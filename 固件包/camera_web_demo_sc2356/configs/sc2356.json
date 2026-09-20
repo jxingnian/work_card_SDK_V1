@@ -1,0 +1,123 @@
+{
+    "platform": "hi3516cv610",
+    "board": "hongou_lite",
+    "chip_id": 3516610,
+
+    "audio": {
+        "ai": [
+            {
+                "dev": 0,
+                "sample_rate": 16000,
+                "channels": 1,
+                "bit_width": 16,
+                "pt_num_per_frm": 320,
+                "frm_cnt": 10,
+                "resample": false,
+                "resample_rate": 0,
+                "volume": 30
+            }
+        ],
+        "ao": [
+            {
+                "dev": 0,
+                "sample_rate": 16000,
+                "channels": 1,
+                "bit_width": 16,
+                "pt_num_per_frm": 320,
+                "frm_cnt": 10,
+                "resample": false,
+                "resample_rate": 0,
+                "volume": 3,
+                "mute": false
+            }
+        ],
+        "aenc": [
+            {
+                "chn": 0,
+                "encode_fmt": "OPUS",
+                "sample_rate": 16000,
+                "channels": 1,
+                "bit_width": 16,
+                "bit_rate": 64000,
+                "pt_num_per_frm": 320
+            }
+        ],
+        "adec": [
+            {
+                "chn": 0,
+                "decode_fmt": "OPUS",
+                "sample_rate": 16000,
+                "channels": 1,
+                "bit_width": 16,
+                "pt_num_per_frm": 320
+            }
+        ]
+    },
+
+    "video": {
+        "vi": [
+            {
+                "dev": 0,
+                "chn": 0,
+                "sensor_name": "sc2356_dev0",
+                "pipe_ids": [0],
+                "pipe_num": 1,
+                "chn_num": 1,
+                "width": 1600,
+                "height": 1200,
+                "pixel_fmt": "NV12",
+                "fps": 30,
+                "mipi_dev": 0,
+                "lane_divide_mode": 1,
+                "lane_ids": [0],
+                "lane_rate": 750,
+                "bit_width": 10,
+                "sns_clk_src": 0,
+                "bus_id": 0,
+                "wdr": false,
+                "nr": true,
+                "sharpen": true
+            }
+        ],
+        "vpss": [
+            {
+                "dev": 0,
+                "grp_num": 1,
+                "chn_num": 1,
+                "max_width": 1600,
+                "max_height": 1200,
+                "nr": true,
+                "sharpen": false,
+                "iesharp": false
+            }
+        ],
+        "venc": [
+            {
+                "chn": 0,
+                "encode_fmt": "H264",
+                "width": 1600,
+                "height": 1200,
+                "fps": 30,
+                "gop": 60,
+                "bit_rate": 8192000,
+                "rc_mode": 2,
+                "profile": 2,
+                "min_qp": 10,
+                "max_qp": 51,
+                "snap": false
+            }
+        ]
+    },
+
+    "pipeline": [
+        {
+            "name": "video_record",
+            "auto_bind": true,
+            "nodes": [
+                { "mod": "VI", "dev": 0, "chn": 0 },
+                { "mod": "VPSS", "dev": 0, "chn": 0 },
+                { "mod": "VENC", "dev": 0, "chn": 0 }
+            ]
+        }
+    ]
+}
