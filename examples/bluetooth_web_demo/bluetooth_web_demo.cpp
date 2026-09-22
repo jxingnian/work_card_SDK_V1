@@ -362,6 +362,13 @@ private:
             if (i != 0U) {
                 extra << ',';
             }
+            ehal_bt_device_info_t current{};
+            if (ehal_bt_get_device_info(bt_, devices[i].address, &current) == EHAL_OK) {
+                devices[i].paired = current.paired;
+                devices[i].trusted = current.trusted;
+                devices[i].connected = current.connected;
+                devices[i].blocked = current.blocked;
+            }
             extra << "{\"address\":\"" << json_escape(devices[i].address)
                   << "\",\"name\":\"" << json_escape(devices[i].name)
                   << "\",\"alias\":\"" << json_escape(devices[i].alias)
