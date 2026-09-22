@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(camera_web_demo camera_web_demo/camera_web_demo.cpp)
 add_executable(wifi_cli_demo wifi_cli_demo/wifi_cli_demo.cpp)
 add_executable(mic_web_demo mic_web_demo/mic_web_demo.cpp)
+add_executable(key_cli_demo key_cli_demo/key_cli_demo.cpp)
 
 set(EHAL_SDK_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 set(EHAL_SDK_LIB_DIR "${EHAL_SDK_ROOT}/lib")
@@ -24,6 +25,9 @@ target_include_directories(wifi_cli_demo PRIVATE
 target_include_directories(mic_web_demo PRIVATE
     "${EHAL_SDK_ROOT}/include"
 )
+target_include_directories(key_cli_demo PRIVATE
+    "${EHAL_SDK_ROOT}/include"
+)
 
 target_link_directories(camera_web_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
@@ -32,6 +36,9 @@ target_link_directories(wifi_cli_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
 )
 target_link_directories(mic_web_demo PRIVATE
+    "${EHAL_SDK_LIB_DIR}"
+)
+target_link_directories(key_cli_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
 )
 
@@ -124,11 +131,15 @@ target_link_libraries(mic_web_demo PRIVATE
     dl
     m
 )
+target_link_libraries(key_cli_demo PRIVATE
+    ehal_key
+    pthread
+)
 target_link_options(mic_web_demo PRIVATE
     -Wl,--allow-shlib-undefined
 )
 
-install(TARGETS camera_web_demo wifi_cli_demo mic_web_demo
+install(TARGETS camera_web_demo wifi_cli_demo mic_web_demo key_cli_demo
     RUNTIME DESTINATION bin
 )
 
@@ -164,5 +175,6 @@ install(PROGRAMS
     camera_web_demo/run_camera_web_demo.sh
     camera_web_demo/fix_board_sensor_sc2356.sh
     mic_web_demo/run_mic_web_demo.sh
+    key_cli_demo/run_key_cli_demo.sh
     DESTINATION .
 )
