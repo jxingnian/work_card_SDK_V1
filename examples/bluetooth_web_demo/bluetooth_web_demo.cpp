@@ -99,6 +99,21 @@ std::string shell_quote(const std::string &value)
     return result;
 }
 
+std::string a2dp_pid_path(const std::string &address)
+{
+    return "/tmp/ehal_a2dp_" + address + ".pid";
+}
+
+std::string a2dp_log_path(const std::string &address)
+{
+    return "/tmp/ehal_a2dp_" + address + ".log";
+}
+
+std::string a2dp_status_path(const std::string &address)
+{
+    return "/tmp/ehal_a2dp_" + address + ".status";
+}
+
 std::string run_command(const std::string &command)
 {
     std::array<char, 512> buffer{};
@@ -481,10 +496,37 @@ private:
             ret = ehal_bt_a2dp_set_mute(bt_, address.c_str(),
                                         bool_value(value_or(query, "value")));
         } else if (action == "a2dp_play") {
-            ret = ehal_bt_a2dp_play_file(bt_, address.c_str(),
-                                         value_or(query, "path").c_str());
+            const std::string path = value_or(query, "path");
+            if (address.empty() || path.empty() || access(path.c_str(), R_OK) != 0) {
+                ret = EHAL_ERR_PARAM;
+                extra = "\"command_output\":\"audio file is missing or unreadable\"";
+            } else {
+                const std::string pid_path = a2dp_pid_path(address);
+                const std::string log_path = a2dp_log_path(address);
+                const std::string status_path = a2dp_status_path(address);
+                const std::string pcm =
+                    "bluealsa:DEV=" + address + ",PROFILE=a2dp,SRV=org.bluealsa";
+                std::string command =
+                    "if [ -s " + shell_quote(pid_path) + " ]; then "
+                    "kill $(cat " + shell_quote(pid_path) + ") 2>/dev/null; fi; "
+                    "rm -f " + shell_quote(log_path) + " " + shell_quote(pid_path) +
+                    " " + shell_quote(status_path) + "; "
+                    "(aplay -D " + shell_quote(pcm) + " " + shell_quote(path) +
+                    " >" + shell_quote(log_path) + " 2>&1; echo $? >" +
+                    shell_quote(status_path) + ") & echo $! >" + shell_quote(pid_path);
+                (void)run_command(command);
+                ret = EHAL_OK;
+                extra = "\"command_output\":\"A2DP playback started\"";
+            }
         } else if (action == "a2dp_stop") {
-            ret = ehal_bt_a2dp_stop(bt_, address.c_str());
+            const std::string pid_path = a2dp_pid_path(address);
+            (void)run_command(
+                "if [ -s " + shell_quote(pid_path) + " ]; then "
+                "kill $(cat " + shell_quote(pid_path) + ") 2>/dev/null; fi; "
+                "rm -f " + shell_quote(pid_path) + " " +
+                shell_quote(a2dp_log_path(address)) + " " +
+                shell_quote(a2dp_status_path(address)));
+            ret = EHAL_OK;
         } else if (action == "a2dp_write_pcm") {
             ret = ehal_bt_a2dp_write_pcm(bt_, address.c_str(), "test", 4U,
                                          8000U, 1U, 16U);
