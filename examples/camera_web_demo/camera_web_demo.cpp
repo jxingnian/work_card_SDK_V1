@@ -1,5 +1,6 @@
 #include "ehal_camera.h"
 #include "ehal_audio.h"
+#include "ehal_rtsp.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -38,7 +39,6 @@ constexpr uint32_t kMaxRuntimeWidth = 1600U;
 constexpr uint32_t kMaxRuntimeHeight = 1200U;
 constexpr size_t kMaxHttpHeaderSize = 16384U;
 constexpr size_t kMaxHttpBodySize = 4096U;
-constexpr char kWebSocketMagic[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 volatile sig_atomic_t g_exit_requested = 0;
 
@@ -48,21 +48,6 @@ static void handle_signal(int signal_number)
         g_exit_requested = 1;
     }
 }
-
-struct WebSocketClient {
-    explicit WebSocketClient(int socket_fd)
-        : fd(socket_fd)
-    {
-        timeval timeout{};
-        timeout.tv_sec = 3;
-        timeout.tv_usec = 0;
-        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-    }
-
-    int fd;
-    std::mutex send_mutex;
-    std::atomic<bool> closed{false};
-};
 
 struct DemoConfig {
     std::string default_config_path = "configs/hal_default.json";
@@ -142,7 +127,25 @@ public:
         audio_config.codec = EHAL_AUDIO_CODEC_G711A;
         audio_config.capture_callback = on_audio_frame;
         audio_config.user_data = this;
-        return ehal_audio_configure(audio_, &audio_config);
+        result = ehal_audio_configure(audio_, &audio_config);
+        if (result != EHAL_OK) {
+            return result;
+        }
+
+        // 创建RTSP服务器（失败时继续运行，只提供HTTP接口）
+        ehal_rtsp_config_t rtsp_config{};
+        rtsp_config.port = 8554;
+        rtsp_config.stream_name = "live";
+        rtsp_config.config_path = nullptr;
+        result = ehal_rtsp_server_create(&rtsp_server_, &rtsp_config);
+        if (result != EHAL_OK) {
+            std::cerr << "Warning: Failed to create RTSP server, continuing without RTSP\n";
+            rtsp_server_ = nullptr;
+        } else {
+            std::cout << "RTSP server started: rtsp://<device-ip>:8554/live\n";
+        }
+
+        return EHAL_OK;
     }
 
     int start()
@@ -301,6 +304,10 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(camera_mutex_);
+        if (rtsp_server_ != nullptr) {
+            ehal_rtsp_server_destroy(rtsp_server_);
+            rtsp_server_ = nullptr;
+        }
         if (audio_ != nullptr) {
             (void)ehal_audio_stop(audio_);
             ehal_audio_destroy(audio_);
@@ -426,7 +433,7 @@ private:
     {
         CameraWebDemo *demo = static_cast<CameraWebDemo *>(user_data);
         if (demo != nullptr && frame != nullptr && frame->data != nullptr && frame->size > 0U) {
-            demo->broadcast_frame(*frame);
+            demo->push_frame_to_rtsp(*frame);
         }
     }
 
@@ -452,20 +459,18 @@ private:
         }
     }
 
-    void broadcast_frame(const ehal_video_frame_t &frame)
+    void push_frame_to_rtsp(const ehal_video_frame_t &frame)
     {
-        std::vector<std::shared_ptr<WebSocketClient>> clients;
-        {
-            std::lock_guard<std::mutex> lock(clients_mutex_);
-            clients = clients_;
+        if (rtsp_server_ == nullptr) {
+            return;
+        }
+
+        int result = ehal_rtsp_server_push_video(rtsp_server_, 0, frame.data, frame.size);
+        if (result != EHAL_OK) {
+            std::cerr << "Failed to push video frame to RTSP\n";
         }
 
         bool key_frame = detect_key_frame(frame);
-        for (const std::shared_ptr<WebSocketClient> &client : clients) {
-            if (!send_binary_frame(client, frame.data, frame.size)) {
-                remove_client(client);
-            }
-        }
         last_key_frame_.store(key_frame, std::memory_order_relaxed);
         frame_count_.fetch_add(1U, std::memory_order_relaxed);
     }
@@ -503,97 +508,16 @@ private:
     {
         size_t sent_size = 0U;
         while (sent_size < size) {
-            ssize_t result = send(socket_fd, data + sent_size, size - sent_size,
-                                  MSG_NOSIGNAL | MSG_DONTWAIT);
+            ssize_t result = send(socket_fd, data + sent_size, size - sent_size, MSG_NOSIGNAL);
             if (result <= 0) {
                 if (result < 0 && errno == EINTR) {
                     continue;
                 }
-                // A slow browser must never block the camera callback thread.
-                // Drop this client when its kernel send buffer is full.
                 return false;
             }
             sent_size += static_cast<size_t>(result);
         }
         return true;
-    }
-
-    static bool send_binary_frame(const std::shared_ptr<WebSocketClient> &client,
-                                  const uint8_t *data,
-                                  uint32_t size)
-    {
-        if (client == nullptr || client->closed.load() || data == nullptr || size == 0U) {
-            return false;
-        }
-
-        std::vector<uint8_t> header;
-        header.push_back(0x82U);
-        if (size < 126U) {
-            header.push_back(static_cast<uint8_t>(size));
-        } else if (size <= 0xFFFFU) {
-            header.push_back(126U);
-            header.push_back(static_cast<uint8_t>((size >> 8U) & 0xFFU));
-            header.push_back(static_cast<uint8_t>(size & 0xFFU));
-        } else {
-            header.push_back(127U);
-            uint64_t payload_size = size;
-            for (int shift = 56; shift >= 0; shift -= 8) {
-                header.push_back(static_cast<uint8_t>((payload_size >> shift) & 0xFFU));
-            }
-        }
-
-        std::lock_guard<std::mutex> lock(client->send_mutex);
-        if (!send_all(client->fd, header.data(), header.size()) ||
-            !send_all(client->fd, data, size)) {
-            std::cerr << "websocket send failed fd=" << client->fd
-                      << " errno=" << errno << " " << std::strerror(errno)
-                      << " payload=" << size << std::endl;
-            if (!client->closed.exchange(true)) {
-                shutdown(client->fd, SHUT_RDWR);
-                close(client->fd);
-            }
-            return false;
-        }
-        return true;
-    }
-
-    static bool send_text(int socket_fd, const std::string &text)
-    {
-        uint8_t header[10] = {};
-        size_t header_size = 0U;
-        header[0] = 0x81U;
-        if (text.size() < 126U) {
-            header[1] = static_cast<uint8_t>(text.size());
-            header_size = 2U;
-        } else {
-            header[1] = 126U;
-            header[2] = static_cast<uint8_t>((text.size() >> 8U) & 0xFFU);
-            header[3] = static_cast<uint8_t>(text.size() & 0xFFU);
-            header_size = 4U;
-        }
-        return send_all(socket_fd, header, header_size) &&
-               send_all(socket_fd,
-                        reinterpret_cast<const uint8_t *>(text.data()),
-                        text.size());
-    }
-
-    void add_client(const std::shared_ptr<WebSocketClient> &client)
-    {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-        clients_.push_back(client);
-    }
-
-    void remove_client(const std::shared_ptr<WebSocketClient> &client)
-    {
-        if (client == nullptr) {
-            return;
-        }
-        if (!client->closed.exchange(true)) {
-            shutdown(client->fd, SHUT_RDWR);
-            close(client->fd);
-        }
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-        clients_.erase(std::remove(clients_.begin(), clients_.end(), client), clients_.end());
     }
 
     static std::string base64_encode(const uint8_t *data, size_t size)
@@ -616,14 +540,6 @@ private:
             result.push_back(index + 2U < size ? alphabet[value & 0x3FU] : '=');
         }
         return result;
-    }
-
-    static std::string websocket_accept_key(const std::string &key)
-    {
-        std::string source = key + kWebSocketMagic;
-        uint8_t digest[SHA_DIGEST_LENGTH] = {};
-        SHA1(reinterpret_cast<const uint8_t *>(source.data()), source.size(), digest);
-        return base64_encode(digest, sizeof(digest));
     }
 
     static std::string trim(const std::string &value)
@@ -849,7 +765,8 @@ private:
                << ",\"audio_playback_frames\":" << audio_stats.playback_frames
                << ",\"audio_playback_bytes\":" << audio_stats.playback_bytes
                << ",\"audio_capture_buffer_bytes\":" << audio_capture_size()
-               << ",\"websocket_clients\":" << websocket_client_count()
+               << ",\"frame_count\":" << frame_count_.load()
+               << ",\"last_key_frame\":" << (last_key_frame_.load() ? "true" : "false")
                << "}";
         return output.str();
     }
@@ -858,108 +775,6 @@ private:
     {
         std::lock_guard<std::mutex> lock(audio_capture_mutex_);
         return audio_capture_.size();
-    }
-
-    size_t websocket_client_count() const
-    {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-        return clients_.size();
-    }
-
-    void handle_websocket(int socket_fd, const std::map<std::string, std::string> &headers)
-    {
-        auto key_iterator = headers.find("sec-websocket-key");
-        if (key_iterator == headers.end()) {
-            close(socket_fd);
-            return;
-        }
-
-        std::string response =
-            "HTTP/1.1 101 Switching Protocols\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            "Sec-WebSocket-Accept: " +
-            websocket_accept_key(key_iterator->second) + "\r\n\r\n";
-        if (!send_all(socket_fd,
-                      reinterpret_cast<const uint8_t *>(response.data()),
-                      response.size())) {
-            close(socket_fd);
-            return;
-        }
-
-        std::shared_ptr<WebSocketClient> client = std::make_shared<WebSocketClient>(socket_fd);
-        add_client(client);
-        receive_websocket(client);
-        remove_client(client);
-    }
-
-    static bool receive_exact(int socket_fd, uint8_t *data, size_t size)
-    {
-        size_t received_size = 0U;
-        while (received_size < size) {
-            ssize_t received = recv(socket_fd, data + received_size,
-                                    size - received_size, 0);
-            if (received <= 0) {
-                return false;
-            }
-            received_size += static_cast<size_t>(received);
-        }
-        return true;
-    }
-
-    void receive_websocket(const std::shared_ptr<WebSocketClient> &client)
-    {
-        while (!g_exit_requested && client != nullptr && !client->closed.load()) {
-            uint8_t frame_header[2] = {};
-            if (!receive_exact(client->fd, frame_header, sizeof(frame_header))) {
-                break;
-            }
-            uint8_t opcode = frame_header[0] & 0x0FU;
-            bool masked = (frame_header[1] & 0x80U) != 0U;
-            uint64_t payload_size = frame_header[1] & 0x7FU;
-            if (payload_size == 126U) {
-                uint8_t size_bytes[2] = {};
-                if (!receive_exact(client->fd, size_bytes, sizeof(size_bytes))) {
-                    break;
-                }
-                payload_size = (static_cast<uint64_t>(size_bytes[0]) << 8U) |
-                               size_bytes[1];
-            } else if (payload_size == 127U) {
-                uint8_t size_bytes[8] = {};
-                if (!receive_exact(client->fd, size_bytes, sizeof(size_bytes))) {
-                    break;
-                }
-                payload_size = 0U;
-                for (uint8_t size_byte : size_bytes) {
-                    payload_size = (payload_size << 8U) | size_byte;
-                }
-            }
-            if (payload_size > kMaxHttpBodySize || !masked) {
-                break;
-            }
-            uint8_t mask[4] = {};
-            if (!receive_exact(client->fd, mask, sizeof(mask))) {
-                break;
-            }
-            std::vector<uint8_t> payload(static_cast<size_t>(payload_size));
-            if (!payload.empty() && !receive_exact(client->fd, payload.data(), payload.size())) {
-                break;
-            }
-            for (size_t index = 0U; index < payload.size(); ++index) {
-                payload[index] ^= mask[index % 4U];
-            }
-            if (opcode == 0x8U) {
-                break;
-            }
-            if (opcode == 0x9U) {
-                std::lock_guard<std::mutex> lock(client->send_mutex);
-                uint8_t pong_header[2] = {0x8AU, static_cast<uint8_t>(payload.size())};
-                if (!send_all(client->fd, pong_header, sizeof(pong_header)) ||
-                    (!payload.empty() && !send_all(client->fd, payload.data(), payload.size()))) {
-                    break;
-                }
-            }
-        }
     }
 
     void handle_client(int socket_fd)
@@ -977,10 +792,6 @@ private:
         std::string version;
         request_stream >> method >> path >> version;
         std::map<std::string, std::string> headers = parse_headers(header);
-        if (path == "/ws" && lower(headers["upgrade"]) == "websocket") {
-            handle_websocket(socket_fd, headers);
-            return;
-        }
 
         if (method == "GET" && (path == "/" || path == "/index.html")) {
             send_file(socket_fd, config_.web_root + "/index.html", "text/html; charset=utf-8");
@@ -1294,12 +1105,11 @@ private:
 
     ehal_camera_t *camera_ = nullptr;
     ehal_audio_t *audio_ = nullptr;
+    ehal_rtsp_server_t *rtsp_server_ = nullptr;
     DemoConfig config_;
     mutable std::mutex camera_mutex_;
     bool running_ = false;
     std::atomic<int> server_fd_{-1};
-    mutable std::mutex clients_mutex_;
-    std::vector<std::shared_ptr<WebSocketClient>> clients_;
     mutable std::mutex audio_capture_mutex_;
     std::vector<uint8_t> audio_capture_;
     std::atomic<uint64_t> frame_count_{0U};

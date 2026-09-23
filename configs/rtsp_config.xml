@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config>
+    <serverip></serverip>               <!-- Specify the IP address RTSP server bindings, if not specified, the RTSP server will bind to the default routing interface IP address -->
+    <serverip></serverip>               <!-- This node can configure multiple instances,meaning that the server can bind multiple IP addresses or domain names -->
+    <serverport>554</serverport>        <!-- Specify the port RTSP server binding, the default is 554 -->   
+    <loop_nums>-1</loop_nums>           <!-- When streaming video files, specify the number of loop playback,-1 means infinite loop -->
+    <multicast>0</multicast>            <!-- Whether to enable rtp multicast function, 0-disable, 1-enable -->
+    <metadata>1</metadata>              <!-- Whether to enable the meta data stream, 0-disable, 1-enable -->
+    <rtsp_over_http>1</rtsp_over_http>  <!-- Whether to enable rtsp over http function, 0-disable,1-enable -->
+    <http_port>80</http_port>           <!-- Specify the HTTP service port for rtsp over http function -->
+    <rtsp_over_https>0</rtsp_over_https><!-- Whether to enable rtsp over https function, 0-disable,1-enable -->
+    <https_port>443</https_port>        <!-- Specify the HTTPS service port for rtsp over https function -->
+    <cert_file>ssl.ca</cert_file>       <!-- Specify the HTTPS service certificate file -->
+    <key_file>ssl.key</key_file>        <!-- Specify the HTTPS service key file -->
+    <need_auth>1</need_auth>            <!-- Whether enable the user authentication function,0-disable,1-enable -->
+    <log_enable>1</log_enable>          <!-- Whether enable the log function,0-disable,1-enable -->
+    <log_level>1</log_level>            <!-- The log level: TRACE 0, DEBUG 1, INFO 2, WARN 3, ERROR 4, FATAL 5 -->
+    
+    <user>                              <!-- Specify the login username password, it can configure multiple nodes -->
+        <username>admin</username>      <!-- The login username -->
+        <password>admin</password>      <!-- The login password -->
+    </user>
+    
+    <user>
+        <username>user</username>
+        <password>123456</password>
+    </user>
+
+    <output>                            <!-- Specify the audio and video output parameters, it can configure multiple nodes -->
+        <url>live0</url>           <!-- Match URL address, it can be filename, or file extension name, or special suffix -->
+        <video>                         <!-- Specify the video output parameters -->
+            <codec>H264</codec>         <!-- Specify the video stream codec, H264,H265,MP4,JPEG -->
+            <width>2688</width>             <!-- Specify the output video width, If 0 use the original video width (live screen stream use the screen width, camera stream use the default width) -->
+            <height>1520</height>           <!-- Specify the output video height, If 0 use the original video height (live screen stream use the screen height, camera stream use the default height) -->
+            <framerate>30</framerate>     <!-- Specify the output video framerate, If 0 use the original video framerate (live screen use the default value 15, camera stream use the default value 25) -->
+            <bitrate>6000000</bitrate>         <!-- Specify the output video bit rate, if 0, automatically calculate the output bit rate, the unit is kb/s -->
+        </video>
+        <audio>                         <!-- Specify the audio output parameters -->
+            <codec>OPUS</codec>        <!-- Specify the audio stream codec, G711A,G711U,G722,G726,AAC,OPUS -->
+            <samplerate>16000</samplerate> <!-- Specify the audio sample rate -->
+            <channels>1</channels>      <!-- Specify the audio channel number, 1 is mono, 2 is stereo, If 0 use the original audio channel number (audio device stream use the default value 2) -->
+            <bitrate></bitrate>         <!-- Specify the output audio bit rate, if 0, automatically calculate the output bit rate, the unit is kb/s -->
+        </audio>
+    </output>
+    <output>                            <!-- Specify the audio and video output parameters, it can configure multiple nodes -->
+        <url>live1</url>           <!-- Match URL address, it can be filename, or file extension name, or special suffix -->
+        <video>                         <!-- Specify the video output parameters -->
+            <codec>H264</codec>         <!-- Specify the video stream codec, H264,H265,MP4,JPEG -->
+            <width>1920</width>             <!-- Specify the output video width, If 0 use the original video width (live screen stream use the screen width, camera stream use the default width) -->
+            <height>1080</height>           <!-- Specify the output video height, If 0 use the original video height (live screen stream use the screen height, camera stream use the default height) -->
+            <framerate>30</framerate>     <!-- Specify the output video framerate, If 0 use the original video framerate (live screen use the default value 15, camera stream use the default value 25) -->
+            <bitrate>4000000</bitrate>         <!-- Specify the output video bit rate, if 0, automatically calculate the output bit rate, the unit is kb/s -->
+        </video>
+        <audio>                         <!-- Specify the audio output parameters -->
+            <codec>OPUS</codec>        <!-- Specify the audio stream codec, G711A,G711U,G722,G726,AAC,OPUS -->
+            <samplerate>16000</samplerate> <!-- Specify the audio sample rate -->
+            <channels>1</channels>      <!-- Specify the audio channel number, 1 is mono, 2 is stereo, If 0 use the original audio channel number (audio device stream use the default value 2) -->
+            <bitrate></bitrate>         <!-- Specify the output audio bit rate, if 0, automatically calculate the output bit rate, the unit is kb/s -->
+        </audio>
+    </output>
+    <output>                            <!-- Specify the audio and video output parameters, it can configure multiple nodes -->
+        <url>live2</url>           <!-- Match URL address, it can be filename, or file extension name, or special suffix -->
+        <video>                         <!-- Specify the video output parameters -->
+            <codec>H264</codec>         <!-- Specify the video stream codec, H264,H265,MP4,JPEG -->
+            <width>1280</width>             <!-- Specify the output video width, If 0 use the original video width (live screen stream use the screen width, camera stream use the default width) -->
+            <height>720</height>           <!-- Specify the output video height, If 0 use the original video height (live screen stream use the screen height, camera stream use the default height) -->
+            <framerate>30</framerate>     <!-- Specify the output video framerate, If 0 use the original video framerate (live screen use the default value 15, camera stream use the default value 25) -->
+            <bitrate>2000000</bitrate>         <!-- Specify the output video bit rate, if 0, automatically calculate the output bit rate, the unit is kb/s -->
+        </video>
+        <audio>                         <!-- Specify the audio output parameters -->
+            <codec>OPUS</codec>        <!-- Specify the audio stream codec, G711A,G711U,G722,G726,AAC,OPUS -->
+            <samplerate>16000</samplerate> <!-- Specify the audio sample rate -->
+            <channels>1</channels>      <!-- Specify the audio channel number, 1 is mono, 2 is stereo, If 0 use the original audio channel number (audio device stream use the default value 2) -->
+            <bitrate></bitrate>         <!-- Specify the output audio bit rate, if 0, automatically calculate the output bit rate, the unit is kb/s -->
+        </audio>
+    </output>
+</config>
+
