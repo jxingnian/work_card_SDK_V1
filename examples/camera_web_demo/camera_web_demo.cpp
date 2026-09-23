@@ -503,11 +503,14 @@ private:
     {
         size_t sent_size = 0U;
         while (sent_size < size) {
-            ssize_t result = send(socket_fd, data + sent_size, size - sent_size, MSG_NOSIGNAL);
+            ssize_t result = send(socket_fd, data + sent_size, size - sent_size,
+                                  MSG_NOSIGNAL | MSG_DONTWAIT);
             if (result <= 0) {
                 if (result < 0 && errno == EINTR) {
                     continue;
                 }
+                // A slow browser must never block the camera callback thread.
+                // Drop this client when its kernel send buffer is full.
                 return false;
             }
             sent_size += static_cast<size_t>(result);
