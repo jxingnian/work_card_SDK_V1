@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <config>
-    <serverip></serverip>               <!-- Specify the IP address RTSP server bindings, if not specified, the RTSP server will bind to the default routing interface IP address -->
-    <serverip></serverip>               <!-- This node can configure multiple instances,meaning that the server can bind multiple IP addresses or domain names -->
-    <serverport>554</serverport>        <!-- Specify the port RTSP server binding, the default is 554 -->   
+    <serverip>0.0.0.0</serverip>         <!-- Listen on every local interface; clients use the board's current Wi-Fi IP -->
+    <serverport>8554</serverport>        <!-- RTSP service port -->
     <loop_nums>-1</loop_nums>           <!-- When streaming video files, specify the number of loop playback,-1 means infinite loop -->
     <multicast>0</multicast>            <!-- Whether to enable rtp multicast function, 0-disable, 1-enable -->
     <metadata>1</metadata>              <!-- Whether to enable the meta data stream, 0-disable, 1-enable -->

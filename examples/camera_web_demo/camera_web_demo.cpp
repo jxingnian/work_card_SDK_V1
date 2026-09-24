@@ -136,7 +136,10 @@ public:
         ehal_rtsp_config_t rtsp_config{};
         rtsp_config.port = 8554;
         rtsp_config.stream_name = "live";
-        rtsp_config.config_path = nullptr;
+        const char *rtsp_config_path = std::getenv("RTSP_CONFIG");
+        rtsp_config.config_path =
+            (rtsp_config_path != nullptr && rtsp_config_path[0] != '\0') ?
+            rtsp_config_path : "configs/rtsp_config.xml";
         result = ehal_rtsp_server_create(&rtsp_server_, &rtsp_config);
         if (result != EHAL_OK) {
             std::cerr << "Warning: Failed to create RTSP server, continuing without RTSP\n";
