@@ -13,7 +13,7 @@
                 "frm_cnt": 10,
                 "resample": false,
                 "resample_rate": 0,
-                "volume": 30
+                "volume": 100
             }
         ],
         "aenc": [

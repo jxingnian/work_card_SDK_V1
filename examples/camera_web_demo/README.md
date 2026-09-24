@@ -116,7 +116,7 @@ ls -lh "$BUILD/camera_web_demo_rtsp.tar.gz"
 **Windows PowerShell:**
 ```powershell
 $sdk = 'D:\XingNian\client\Steve669063\ehal_media-master\work_card_SDK_V1'
-scp "$sdk\build\camera_web_demo\camera_web_demo_rtsp.tar.gz" `
+scp "$sdk\build\mic_web_demo\camera_web_demo_rtsp.tar.gz" `
     root@192.168.137.47:/tmp/
 ```
 

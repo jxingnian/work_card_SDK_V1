@@ -572,8 +572,17 @@ private:
 
     void handle_volume(int fd, int volume)
     {
+        input_volume_ = volume;
         output_volume_ = volume;
-        int ret = running_ ? ehal_audio_set_output_volume(audio_, volume) : EHAL_OK;
+        int ret = EHAL_OK;
+        if (running_) {
+            if (record_enabled_) {
+                ret = ehal_audio_set_input_volume(audio_, volume);
+            }
+            if (ret == EHAL_OK && playback_enabled_) {
+                ret = ehal_audio_set_output_volume(audio_, volume);
+            }
+        }
         send_text(fd, ret == EHAL_OK ? 200 : 500,
                   "application/json; charset=utf-8",
                   ret == EHAL_OK ?
