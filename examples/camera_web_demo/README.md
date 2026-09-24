@@ -117,13 +117,13 @@ ls -lh "$BUILD/camera_web_demo_rtsp.tar.gz"
 ```powershell
 $sdk = 'D:\XingNian\client\Steve669063\ehal_media-master\work_card_SDK_V1'
 scp "$sdk\build\camera_web_demo\camera_web_demo_rtsp.tar.gz" `
-    xingnian@192.168.137.78:/tmp/
+    root@192.168.137.47:/tmp/
 ```
 
 **WSL/Linux:**
 ```bash
 scp work_card_SDK_V1/build/camera_web_demo/camera_web_demo_rtsp.tar.gz \
-    xingnian@192.168.137.78:/tmp/
+    root@192.168.137.47:/tmp/
 ```
 
 ### 板端部署
@@ -132,7 +132,7 @@ scp work_card_SDK_V1/build/camera_web_demo/camera_web_demo_rtsp.tar.gz \
 
 ```bash
 # SSH连接
-ssh xingnian@192.168.137.78
+ssh root@192.168.137.47
 # 密码: ebaina
 
 # 清理旧部署

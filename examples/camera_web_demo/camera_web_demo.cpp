@@ -35,8 +35,8 @@
 namespace {
 
 constexpr int kDefaultPort = 8080;
-constexpr uint32_t kMaxRuntimeWidth = 1600U;
-constexpr uint32_t kMaxRuntimeHeight = 1200U;
+constexpr uint32_t kMaxRuntimeWidth = 640U;
+constexpr uint32_t kMaxRuntimeHeight = 480U;
 constexpr size_t kMaxHttpHeaderSize = 16384U;
 constexpr size_t kMaxHttpBodySize = 4096U;
 
@@ -57,8 +57,8 @@ struct DemoConfig {
     std::string sensor_name = "sc2356";
     int channel = 0;
     uint32_t config_mask = 0U;
-    uint32_t width = 1600U;
-    uint32_t height = 1200U;
+    uint32_t width = 640U;
+    uint32_t height = 480U;
     uint32_t fps = 25U;
     uint32_t bitrate_kbps = 2048U;
     uint32_t gop = 60U;
