@@ -123,7 +123,7 @@ ls -lh "$BUILD/mic_web_demo.tar.gz"
 ```powershell
 $sdk = 'D:\XingNian\client\Steve669063\ehal_media-master\work_card_SDK_V1'
 scp "$sdk\build\mic_web_demo\mic_web_demo.tar.gz" `
-    root@192.168.137.47:/tmp/
+    root@192.168.137.239:/tmp/
 ```
 
 **WSL/Linux:**

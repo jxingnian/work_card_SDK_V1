@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cerrno>
 #include <cctype>
 #include <cstdint>
@@ -27,6 +28,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <condition_variable>
+#include <deque>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -35,8 +38,11 @@
 namespace {
 
 constexpr int kDefaultPort = 8080;
-constexpr uint32_t kMaxRuntimeWidth = 640U;
-constexpr uint32_t kMaxRuntimeHeight = 480U;
+constexpr uint32_t kMaxSensorWidth = 1600U;
+constexpr uint32_t kMaxSensorHeight = 1200U;
+// Keep queues bounded so a slow RTSP consumer cannot accumulate latency.
+constexpr size_t kRtspVideoQueueLimit = 1U;
+constexpr size_t kRtspAudioQueueLimit = 5U;
 constexpr size_t kMaxHttpHeaderSize = 16384U;
 constexpr size_t kMaxHttpBodySize = 4096U;
 
@@ -60,8 +66,8 @@ struct DemoConfig {
     uint32_t width = 640U;
     uint32_t height = 480U;
     uint32_t fps = 25U;
-    uint32_t bitrate_kbps = 2048U;
-    uint32_t gop = 60U;
+    uint32_t bitrate_kbps = 1024U;
+    uint32_t gop = 15U;
     uint32_t rc_mode = 2U;
     uint32_t profile = 2U;
     uint32_t min_qp = 10U;
@@ -71,7 +77,7 @@ struct DemoConfig {
     int vpss_iesharp = -1;
     uint32_t vi_width = 0U;
     uint32_t vi_height = 0U;
-    uint32_t vi_fps = 0U;
+    uint32_t vi_fps = 25U;
     uint32_t vi_bit_width = 0U;
     int vi_wdr = -1;
     int vi_nr = -1;
@@ -97,6 +103,7 @@ public:
     {
         std::lock_guard<std::mutex> lock(camera_mutex_);
         config_ = config;
+        config_.config_mask |= EHAL_CAMERA_CFG_VI_FPS;
         int result = ehal_camera_create(&camera_);
         if (result != EHAL_OK) {
             camera_ = nullptr;
@@ -120,11 +127,11 @@ public:
         audio_config.ai_dev = 0;
         audio_config.ao_dev = 0;
         audio_config.aenc_channel = 0;
-        audio_config.sample_rate = 8000;
+        audio_config.sample_rate = 16000;
         audio_config.channels = 1;
         audio_config.bit_width = 16;
-        audio_config.samples_per_frame = 160;
-        audio_config.codec = EHAL_AUDIO_CODEC_G711A;
+        audio_config.samples_per_frame = 320;
+        audio_config.codec = EHAL_AUDIO_CODEC_OPUS;
         audio_config.capture_callback = on_audio_frame;
         audio_config.user_data = this;
         result = ehal_audio_configure(audio_, &audio_config);
@@ -159,11 +166,30 @@ public:
         }
         int result = ehal_camera_start(camera_);
         if (result == EHAL_OK) {
+            result = ehal_camera_set_resolution(camera_, config_.channel,
+                                                config_.width, config_.height);
+            std::cout << "startup resolution result=" << result << '\n';
+        }
+        if (result == EHAL_OK) {
+            result = ehal_camera_set_fps(camera_, config_.channel, config_.fps);
+            std::cout << "startup fps result=" << result << '\n';
+        }
+        if (result == EHAL_OK) {
+            result = ehal_camera_set_bitrate(camera_, config_.channel,
+                                             config_.bitrate_kbps);
+            std::cout << "startup bitrate result=" << result << '\n';
+            if (result == EHAL_ERR_NOT_SUPPORTED) {
+                result = EHAL_OK;
+            }
+        }
+        if (result == EHAL_OK) {
             running_ = true;
             result = ehal_audio_start(audio_);
             if (result != EHAL_OK) {
                 (void)ehal_camera_stop(camera_);
                 running_ = false;
+            } else {
+                start_rtsp_worker();
             }
         }
         return result;
@@ -252,6 +278,14 @@ public:
         return EHAL_OK;
     }
 
+    int restart_reconfigure(const std::map<std::string, std::string> &parameters)
+    {
+        /* Resolution, FPS and bitrate are applied through the vendor runtime
+         * MPI path.  Avoid tearing down ISP: this board cannot safely restart
+         * the media subsystem inside the process. */
+        return reconfigure(parameters);
+    }
+
     void run()
     {
         int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -306,6 +340,7 @@ public:
             close(server_fd);
         }
 
+        stop_rtsp_worker();
         std::lock_guard<std::mutex> lock(camera_mutex_);
         if (rtsp_server_ != nullptr) {
             ehal_rtsp_server_destroy(rtsp_server_);
@@ -394,8 +429,8 @@ private:
             next_config.vi_sharpen != config_.vi_sharpen) {
             return EHAL_ERR_PARAM;
         }
-        if (next_config.width > kMaxRuntimeWidth ||
-            next_config.height > kMaxRuntimeHeight ||
+        if (next_config.width > kMaxSensorWidth ||
+            next_config.height > kMaxSensorHeight ||
             next_config.width == 0U ||
             next_config.height == 0U ||
             (next_config.width % 2U) != 0U ||
@@ -436,7 +471,7 @@ private:
     {
         CameraWebDemo *demo = static_cast<CameraWebDemo *>(user_data);
         if (demo != nullptr && frame != nullptr && frame->data != nullptr && frame->size > 0U) {
-            demo->push_frame_to_rtsp(*frame);
+            demo->queue_video_frame(*frame);
         }
     }
 
@@ -445,6 +480,7 @@ private:
         CameraWebDemo *demo = static_cast<CameraWebDemo *>(user_data);
         if (demo != nullptr && frame != nullptr && frame->data != nullptr &&
             frame->size > 0U) {
+            demo->queue_audio_frame(*frame);
             demo->record_audio_frame(*frame);
         }
     }
@@ -462,20 +498,91 @@ private:
         }
     }
 
-    void push_frame_to_rtsp(const ehal_video_frame_t &frame)
+    struct QueuedFrame {
+        std::vector<uint8_t> data;
+        uint32_t samples = 0U;
+        bool key_frame = false;
+    };
+
+    void queue_video_frame(const ehal_video_frame_t &frame)
     {
-        if (rtsp_server_ == nullptr) {
-            return;
+        QueuedFrame queued;
+        queued.data.assign(frame.data, frame.data + frame.size);
+        queued.key_frame = detect_key_frame(frame);
+        {
+            std::lock_guard<std::mutex> lock(rtsp_queue_mutex_);
+            if (video_queue_.size() >= kRtspVideoQueueLimit) {
+                video_queue_.pop_front();
+                rtsp_dropped_frames_.fetch_add(1U);
+            }
+            video_queue_.push_back(std::move(queued));
         }
-
-        int result = ehal_rtsp_server_push_video(rtsp_server_, 0, frame.data, frame.size);
-        if (result != EHAL_OK) {
-            std::cerr << "Failed to push video frame to RTSP\n";
-        }
-
-        bool key_frame = detect_key_frame(frame);
-        last_key_frame_.store(key_frame, std::memory_order_relaxed);
+        rtsp_queue_cv_.notify_one();
+        last_key_frame_.store(detect_key_frame(frame), std::memory_order_relaxed);
         frame_count_.fetch_add(1U, std::memory_order_relaxed);
+    }
+
+    void queue_audio_frame(const ehal_audio_frame_t &frame)
+    {
+        QueuedFrame queued;
+        queued.data.assign(frame.data, frame.data + frame.size);
+        queued.samples = 320U;
+        {
+            std::lock_guard<std::mutex> lock(rtsp_queue_mutex_);
+            if (audio_queue_.size() >= kRtspAudioQueueLimit) {
+                audio_queue_.pop_front();
+                rtsp_dropped_audio_.fetch_add(1U);
+            }
+            audio_queue_.push_back(std::move(queued));
+        }
+        rtsp_queue_cv_.notify_one();
+    }
+
+    void start_rtsp_worker()
+    {
+        if (rtsp_worker_running_.exchange(true)) return;
+        rtsp_worker_ = std::thread([this]() { rtsp_worker_loop(); });
+    }
+
+    void stop_rtsp_worker()
+    {
+        if (!rtsp_worker_running_.exchange(false)) return;
+        rtsp_queue_cv_.notify_all();
+        if (rtsp_worker_.joinable()) rtsp_worker_.join();
+        std::lock_guard<std::mutex> lock(rtsp_queue_mutex_);
+        video_queue_.clear();
+        audio_queue_.clear();
+    }
+
+    void rtsp_worker_loop()
+    {
+        while (rtsp_worker_running_.load()) {
+            QueuedFrame frame;
+            bool is_video = false;
+            {
+                std::unique_lock<std::mutex> lock(rtsp_queue_mutex_);
+                rtsp_queue_cv_.wait(lock, [this]() {
+                    return !rtsp_worker_running_.load() || !video_queue_.empty() || !audio_queue_.empty();
+                });
+                if (!rtsp_worker_running_.load()) break;
+                if (!video_queue_.empty()) {
+                    frame = std::move(video_queue_.front()); video_queue_.pop_front(); is_video = true;
+                } else if (!audio_queue_.empty()) {
+                    frame = std::move(audio_queue_.front()); audio_queue_.pop_front();
+                }
+            }
+            if (rtsp_server_ == nullptr) continue;
+            const auto started = std::chrono::steady_clock::now();
+            int result = is_video ?
+                ehal_rtsp_server_push_video(rtsp_server_, 0, frame.data.data(), frame.data.size()) :
+                ehal_rtsp_server_push_audio(rtsp_server_, 0, frame.data.data(), frame.data.size(), frame.samples);
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started).count();
+            uint64_t old_max = rtsp_push_max_ms_.load();
+            while (static_cast<uint64_t>(elapsed) > old_max &&
+                   !rtsp_push_max_ms_.compare_exchange_weak(old_max, static_cast<uint64_t>(elapsed))) {}
+            if (result != EHAL_OK) rtsp_push_failures_.fetch_add(1U);
+        }
     }
 
     bool detect_key_frame(const ehal_video_frame_t &frame) const
@@ -733,6 +840,7 @@ private:
         std::ostringstream output;
         output << "{\"running\":" << (running ? "true" : "false")
                << ",\"codec\":\"" << codec_name << "\""
+               << ",\"rtsp_url\":\"rtsp://192.168.137.239:8554/live\""
                << ",\"sensor_name\":\"" << json_escape(current_config.sensor_name) << "\""
                << ",\"pipeline_name\":\"" << json_escape(current_config.pipeline_name) << "\""
                << ",\"channel\":" << current_config.channel
@@ -770,6 +878,12 @@ private:
                << ",\"audio_capture_buffer_bytes\":" << audio_capture_size()
                << ",\"frame_count\":" << frame_count_.load()
                << ",\"last_key_frame\":" << (last_key_frame_.load() ? "true" : "false")
+               << ",\"rtsp_video_queue_depth\":" << video_queue_depth()
+               << ",\"rtsp_audio_queue_depth\":" << audio_queue_depth()
+               << ",\"rtsp_dropped_frames\":" << rtsp_dropped_frames_.load()
+               << ",\"rtsp_dropped_audio\":" << rtsp_dropped_audio_.load()
+               << ",\"rtsp_push_failures\":" << rtsp_push_failures_.load()
+               << ",\"rtsp_push_max_ms\":" << rtsp_push_max_ms_.load()
                << "}";
         return output.str();
     }
@@ -778,6 +892,18 @@ private:
     {
         std::lock_guard<std::mutex> lock(audio_capture_mutex_);
         return audio_capture_.size();
+    }
+
+    size_t video_queue_depth() const
+    {
+        std::lock_guard<std::mutex> lock(rtsp_queue_mutex_);
+        return video_queue_.size();
+    }
+
+    size_t audio_queue_depth() const
+    {
+        std::lock_guard<std::mutex> lock(rtsp_queue_mutex_);
+        return audio_queue_.size();
     }
 
     void handle_client(int socket_fd)
@@ -806,6 +932,17 @@ private:
                 "{\"code\":0,\"message\":\"success\"}" : error_json(result);
             send_http_response(socket_fd, result == EHAL_OK ? 200 : 400,
                                "application/json", output);
+        } else if (method == "POST" && path == "/api/config/restart") {
+            int result = restart_reconfigure(parse_form(body));
+            std::string output = result == EHAL_OK ?
+                "{\"code\":0,\"message\":\"success\"}" : error_json(result);
+            send_http_response(socket_fd, result == EHAL_OK ? 200 : 400,
+                               "application/json", output);
+        } else if (method == "GET" && path == "/api/capabilities") {
+            send_http_response(socket_fd, 200, "application/json",
+                "{\"default_resolution\":\"640x480\",\"max_resolution\":\"1600x1200\","
+                "\"runtime\":[\"fps\",\"bitrate_kbps\"],"
+                "\"restart_required\":[\"width\",\"height\",\"codec\",\"gop\"]}");
         } else if (method == "POST" && path == "/api/audio/start") {
             int result = start_audio();
             std::string output = result == EHAL_OK ?
@@ -1066,9 +1203,9 @@ private:
         config->channel = static_cast<int>(channel);
         auto codec_iterator = parameters.find("codec");
         if (codec_iterator != parameters.end()) {
-            if (codec_iterator->second == "H264") {
+            if (codec_iterator->second == "H264" || codec_iterator->second == "0") {
                 config->codec = EHAL_VIDEO_CODEC_H264;
-            } else if (codec_iterator->second == "H265") {
+            } else if (codec_iterator->second == "H265" || codec_iterator->second == "1") {
                 config->codec = EHAL_VIDEO_CODEC_H265;
             } else {
                 return false;
@@ -1117,6 +1254,16 @@ private:
     std::vector<uint8_t> audio_capture_;
     std::atomic<uint64_t> frame_count_{0U};
     std::atomic<bool> last_key_frame_{false};
+    mutable std::mutex rtsp_queue_mutex_;
+    std::condition_variable rtsp_queue_cv_;
+    std::deque<QueuedFrame> video_queue_;
+    std::deque<QueuedFrame> audio_queue_;
+    std::thread rtsp_worker_;
+    std::atomic<bool> rtsp_worker_running_{false};
+    std::atomic<uint64_t> rtsp_dropped_frames_{0U};
+    std::atomic<uint64_t> rtsp_dropped_audio_{0U};
+    std::atomic<uint64_t> rtsp_push_failures_{0U};
+    std::atomic<uint64_t> rtsp_push_max_ms_{0U};
 };
 
 static bool parse_integer(const std::string &text, int *value)

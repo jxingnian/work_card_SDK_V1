@@ -1,158 +1,40 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Camera RTSP Demo - 配置面板</title>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>摄像头 RTSP 配置</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; padding: 20px; }
-    main { max-width: 1200px; margin: 0 auto; }
-    h1 { margin-bottom: 24px; color: #333; }
-    .card { background: white; border-radius: 8px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-    h2 { margin-bottom: 16px; color: #555; font-size: 1.2em; }
-    .rtsp-info { background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
-    .rtsp-url { font-family: 'Courier New', monospace; font-size: 16px; color: #0369a1; word-break: break-all; margin: 8px 0; }
-    .help-text { color: #666; font-size: 14px; margin-top: 8px; }
-    label { display: block; margin-bottom: 8px; font-weight: 500; color: #555; }
-    input, select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
-    button { background: #0ea5e9; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; }
-    button:hover { background: #0284c7; }
-    button:disabled { background: #cbd5e1; cursor: not-allowed; }
-    .status { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 12px; font-family: monospace; font-size: 12px; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
-    .form-group { margin-bottom: 16px; }
-    .copy-btn { background: #10b981; margin-left: 8px; padding: 6px 12px; font-size: 12px; }
-    .copy-btn:hover { background: #059669; }
+    *{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#f5f7fa;margin:0;padding:20px;color:#24324a}
+    main{max-width:960px;margin:auto}.card{background:#fff;border-radius:10px;padding:22px;margin-bottom:18px;box-shadow:0 2px 10px #0001}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}.row{margin:14px 0}
+    label{display:block;margin-bottom:6px}select,input{width:100%;padding:9px;border:1px solid #ccd3dd;border-radius:5px}
+    button{border:0;border-radius:5px;padding:10px 16px;background:#1688d4;color:#fff;cursor:pointer;margin-right:8px}.secondary{background:#637083}
+    #rtspUrl{font-family:monospace;color:#075e9b;background:#edf8ff;padding:12px;border-radius:5px;word-break:break-all}
+    #message{margin-top:12px;white-space:pre-wrap}.ok{color:#087c42}.error{color:#b42318}pre{white-space:pre-wrap;max-height:360px;overflow:auto;background:#f7f8fa;padding:12px}
   </style>
 </head>
-<body>
-<main>
-  <h1>🎥 Camera RTSP Demo</h1>
-
-  <div class="card">
-    <h2>📡 RTSP 视频流</h2>
-    <div class="rtsp-info">
-      <strong>RTSP地址：</strong>
-      <div class="rtsp-url" id="rtspUrl">rtsp://192.168.137.78:8554/live</div>
-      <button class="copy-btn" onclick="copyRtspUrl()">复制地址</button>
-    </div>
-
-    <h3 style="margin-top: 16px; margin-bottom: 8px; color: #666;">播放方式：</h3>
-
-    <div style="margin-bottom: 12px;">
-      <strong>1. VLC 播放器</strong>
-      <div class="help-text">打开 VLC → 媒体 → 打开网络串流 → 粘贴上方地址 → 播放</div>
-    </div>
-
-    <div style="margin-bottom: 12px;">
-      <strong>2. ffplay 命令行</strong>
-      <div class="help-text"><code>ffplay -rtsp_transport tcp rtsp://192.168.137.78:8554/live</code></div>
-    </div>
-
-    <div>
-      <strong>3. 其他播放器</strong>
-      <div class="help-text">支持RTSP协议的任意播放器均可</div>
-    </div>
-  </div>
-
+<body><main>
+  <h1>摄像头 RTSP 配置</h1>
+  <section class="card"><h2>播放地址</h2><div id="rtspUrl">rtsp://192.168.137.239:8554/live</div><br><button id="copyBtn">一键复制</button></section>
   <div class="grid">
-    <div class="card">
-      <h2>⚙️ 摄像头配置</h2>
+    <section class="card"><h2>视频参数</h2>
       <form id="configForm">
-        <div class="form-group">
-          <label>分辨率</label>
-          <select name="width">
-            <option value="640">640×480</option>
-            <option value="1280">1280×720</option>
-            <option value="1600" selected>1600×1200</option>
-            <option value="1920">1920×1080</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label>帧率 (FPS)</label>
-          <input type="number" name="fps" value="25" min="1" max="60">
-        </div>
-
-        <div class="form-group">
-          <label>码率 (kbps)</label>
-          <input type="number" name="bitrate_kbps" value="2048" min="128" max="8192">
-        </div>
-
-        <div class="form-group">
-          <label>编码格式</label>
-          <select name="codec">
-            <option value="0" selected>H.264</option>
-            <option value="1">H.265</option>
-          </select>
-        </div>
-
-        <button type="submit">应用配置</button>
-      </form>
-    </div>
-
-    <div class="card">
-      <h2>📊 运行状态</h2>
-      <div id="status" class="status">加载中...</div>
-      <button onclick="refreshStatus()" style="margin-top: 12px;">刷新状态</button>
-    </div>
+        <div class="row"><label>分辨率</label><select name="resolution"><option value="640x480">640 × 480（默认）</option><option value="1280x720">1280 × 720</option><option value="1600x1200">1600 × 1200（板端最大）</option></select></div>
+        <div class="row"><label>帧率（FPS）</label><input name="fps" type="number" min="1" max="30" value="25"></div>
+        <div class="row"><label>码率（kbps）</label><input name="bitrate_kbps" type="number" min="128" max="8192" value="6000"></div>
+        <div class="row"><label>编码格式</label><select name="codec"><option value="H264">H.264</option><option value="H265">H.265</option></select></div>
+        <div class="row"><label>GOP</label><input name="gop" type="number" min="1" max="300" value="15"></div>
+        <button type="submit">应用并重启视频</button><button type="button" class="secondary" id="runtimeBtn">仅应用帧率和码率</button>
+      </form><div id="message"></div>
+    </section>
+    <section class="card"><h2>运行状态</h2><pre id="status">加载中…</pre><button id="refreshBtn">刷新状态</button></section>
   </div>
-</main>
-
-<script>
-// 自动更新设备IP
-window.addEventListener('DOMContentLoaded', () => {
-  const deviceIp = location.hostname;
-  document.getElementById('rtspUrl').textContent = `rtsp://${deviceIp}:8554/live`;
-  refreshStatus();
-  setInterval(refreshStatus, 3000); // 每3秒刷新状态
-});
-
-function copyRtspUrl() {
-  const url = document.getElementById('rtspUrl').textContent;
-  navigator.clipboard.writeText(url).then(() => {
-    alert('RTSP地址已复制到剪贴板');
-  });
-}
-
-async function refreshStatus() {
-  try {
-    const response = await fetch('/api/status');
-    const data = await response.json();
-    document.getElementById('status').textContent = JSON.stringify(data, null, 2);
-  } catch (error) {
-    document.getElementById('status').textContent = `错误: ${error.message}`;
-  }
-}
-
-document.getElementById('configForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const formData = new FormData(form);
-
-  // 处理分辨率
-  const width = formData.get('width');
-  const heightMap = { '640': '480', '1280': '720', '1600': '1200', '1920': '1080' };
-  formData.append('height', heightMap[width]);
-
-  try {
-    const response = await fetch('/api/config', {
-      method: 'POST',
-      body: new URLSearchParams(formData)
-    });
-    const result = await response.json();
-
-    if (result.code === 0) {
-      alert('配置已应用成功！');
-      refreshStatus();
-    } else {
-      alert(`配置失败: ${result.message || '未知错误'}`);
-    }
-  } catch (error) {
-    alert(`请求失败: ${error.message}`);
-  }
-});
-</script>
-</body>
-</html>
+</main><script>
+const $=s=>document.querySelector(s), form=$('#configForm'), message=$('#message');
+function show(text,ok){message.textContent=text;message.className=ok?'ok':'error'}
+async function copyUrl(){const text=$('#rtspUrl').textContent;try{if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(text);else{const t=document.createElement('textarea');t.value=text;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove()}show('RTSP 地址已复制',true)}catch(e){show('复制失败：'+e.message,false)}}
+function body(restart){const d=new URLSearchParams(new FormData(form));const [w,h]=d.get('resolution').split('x');d.delete('resolution');d.set('width',w);d.set('height',h);if(!restart){const r=new URLSearchParams();r.set('fps',d.get('fps'));r.set('bitrate_kbps',d.get('bitrate_kbps'));return r}return d}
+async function apply(restart){show('正在应用…',true);try{const res=await fetch(restart?'/api/config/restart':'/api/config',{method:'POST',body:body(restart)});const data=await res.json();if(!res.ok||data.code!==0)throw new Error(`${data.message||'配置失败'} (code=${data.code}, stage=${data.stage||'none'}, hal=${data.hal_error||0})`);show(restart?'配置成功，视频链路已重启':'在线参数已生效',true);await refresh()}catch(e){show('配置失败：'+e.message,false)}}
+async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'}),d=await r.json();$('#status').textContent=JSON.stringify(d,null,2);$('#rtspUrl').textContent=(d.rtsp_url||`rtsp://${location.hostname}:8554/live`).replace('192.168.137.239',location.hostname);form.fps.value=d.fps;form.bitrate_kbps.value=d.bitrate_kbps;form.codec.value=d.codec;form.gop.value=d.gop;const option=[...form.resolution.options].find(o=>o.value===`${d.width}x${d.height}`);if(option)form.resolution.value=option.value}catch(e){show('读取状态失败：'+e.message,false)}}
+form.addEventListener('submit',e=>{e.preventDefault();apply(true)});$('#runtimeBtn').onclick=()=>apply(false);$('#copyBtn').onclick=copyUrl;$('#refreshBtn').onclick=refresh;refresh();setInterval(refresh,3000);
+</script></body></html>
