@@ -131,7 +131,7 @@ public:
         audio_config.channels = 1;
         audio_config.bit_width = 16;
         audio_config.samples_per_frame = 320;
-        audio_config.codec = EHAL_AUDIO_CODEC_OPUS;
+        audio_config.codec = EHAL_AUDIO_CODEC_G711A;
         audio_config.capture_callback = on_audio_frame;
         audio_config.user_data = this;
         result = ehal_audio_configure(audio_, &audio_config);
@@ -189,6 +189,9 @@ public:
                 (void)ehal_camera_stop(camera_);
                 running_ = false;
             } else {
+                // 确保输出音量正确设置
+                int volume_result = ehal_audio_set_output_volume(audio_, 80);
+                std::cout << "set audio output volume to 80, result=" << volume_result << '\n';
                 start_rtsp_worker();
             }
         }
