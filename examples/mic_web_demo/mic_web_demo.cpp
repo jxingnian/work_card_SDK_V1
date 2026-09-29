@@ -399,6 +399,8 @@ private:
             handle_record(fd, parse_seconds(path), parse_format(path));
         } else if (path.rfind("/api/play", 0) == 0) {
             handle_play(fd);
+        } else if (path.rfind("/api/sweep", 0) == 0) {
+            handle_sweep(fd);
         } else if (path.rfind("/api/stop", 0) == 0) {
             handle_stop(fd);
         } else if (path.rfind("/api/volume", 0) == 0) {
@@ -561,6 +563,51 @@ private:
                       ",\"bytes\":" + std::to_string(stats.playback_bytes) + "}\n");
     }
 
+    // Board self-test: record the microphone while the board speaker emits
+    // the same calibrated digital tones.  Each tone is 3 s with a 0.5 s
+    // silence gap; the returned WAV contains the complete capture.
+    void handle_sweep(int fd)
+    {
+        std::unique_lock<std::mutex> record_lock(record_mutex_, std::try_to_lock);
+        if (!record_lock.owns_lock()) {
+            send_text(fd, 409, "text/plain; charset=utf-8", "audio operation is already running\n");
+            return;
+        }
+        std::lock_guard<std::mutex> playback_lock(playback_mutex_);
+        if (playback_running_) {
+            send_text(fd, 409, "text/plain; charset=utf-8", "speaker playback is already running\n");
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
+            audio_buffer_.encoded.clear(); audio_buffer_.frames = 0; audio_buffer_.bytes = 0;
+        }
+        int ret = configure_audio(EHAL_AUDIO_CODEC_PCM, 1, 1);
+        if (ret == EHAL_OK) ret = start_audio();
+        if (ret != EHAL_OK) {
+            send_text(fd, 500, "text/plain; charset=utf-8", std::string("audio start failed: ") + ehal_audio_error_string(ret) + "\n");
+            return;
+        }
+        playback_running_.store(true, std::memory_order_release);
+        const uint32_t tones[] = {100, 500, 1000, 3000, 5000, 6000};
+        for (uint32_t f : tones) {
+            ret = ehal_audio_play_test_tone(audio_, f, 3000, 80);
+            if (ret != EHAL_OK) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+        (void)ehal_audio_stop_playback(audio_);
+        stop_audio();
+        playback_running_.store(false, std::memory_order_release);
+        if (ret != EHAL_OK) {
+            send_text(fd, 500, "text/plain; charset=utf-8", std::string("sweep failed: ") + ehal_audio_error_string(ret) + "\n");
+            return;
+        }
+        std::vector<uint8_t> pcm;
+        { std::lock_guard<std::mutex> lock(audio_buffer_.mutex); pcm = audio_buffer_.encoded; }
+        if (pcm.empty()) { send_text(fd, 500, "text/plain; charset=utf-8", "no microphone audio captured\n"); return; }
+        send_response(fd, 200, "audio/wav", make_wav_from_pcm(pcm, 16000, 1, 16));
+    }
+
     void handle_stop(int fd)
     {
         int ret = ehal_audio_stop_playback(audio_);
@@ -630,7 +677,7 @@ private:
     bool record_enabled_ = false;
     bool playback_enabled_ = false;
     std::atomic<bool> playback_running_{false};
-    int input_volume_ = 100;
+    int input_volume_ = 50;
     int output_volume_ = 100;
     ehal_audio_codec_t active_codec_ = EHAL_AUDIO_CODEC_PCM;
 };
@@ -663,6 +710,9 @@ int main(int argc, char **argv)
 {
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
+    // A client may close the WAV download immediately after receiving it.
+    // Never let that socket condition terminate the whole demo process.
+    signal(SIGPIPE, SIG_IGN);
     Config config = parse_args(argc, argv);
     MicWebDemo demo(config);
     int ret = demo.configure_audio(EHAL_AUDIO_CODEC_PCM, 1, 0);

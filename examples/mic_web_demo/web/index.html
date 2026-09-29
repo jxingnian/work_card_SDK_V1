@@ -29,7 +29,7 @@
     <h2>麦克风</h2>
     <div class="row">
       <span class="label">录音时长</span>
-      <input id="seconds" value="5" inputmode="numeric">
+      <input id="seconds" value="30" inputmode="numeric">
       <span class="label">秒</span>
       <span class="label">格式</span>
       <select id="format">
@@ -67,7 +67,7 @@ async function api(path) {
   return type.includes('application/json') ? res.json() : res.blob();
 }
 $('recordBtn').onclick = async () => {
-  const seconds = Math.max(1, Math.min(30, parseInt($('seconds').value || '5', 10)));
+  const seconds = Math.max(1, Math.min(30, parseInt($('seconds').value || '30', 10)));
   const format = $('format').value;
   $('seconds').value = String(seconds);
   $('recordBtn').disabled = true;
