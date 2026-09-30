@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -38,6 +39,8 @@ struct AudioBuffer {
     std::vector<uint8_t> encoded;
     uint64_t frames = 0;
     uint64_t bytes = 0;
+    bool stream_to_file = false;
+    std::ofstream stream_file;
 };
 
 void on_signal(int)
@@ -262,6 +265,17 @@ void audio_callback(const ehal_audio_frame_t *frame, void *user_data)
         return;
     }
     std::lock_guard<std::mutex> lock(buffer->mutex);
+    if (buffer->stream_to_file && buffer->stream_file.is_open()) {
+        if (frame->codec == EHAL_AUDIO_CODEC_OPUS) {
+            uint16_t size = static_cast<uint16_t>(frame->size > 0xffffU ? 0xffffU : frame->size);
+            buffer->stream_file.put(static_cast<char>(size & 0xffU));
+            buffer->stream_file.put(static_cast<char>((size >> 8U) & 0xffU));
+        }
+        buffer->stream_file.write(reinterpret_cast<const char *>(frame->data), frame->size);
+        buffer->frames++;
+        buffer->bytes += frame->size;
+        return;
+    }
     if (frame->codec == EHAL_AUDIO_CODEC_OPUS) {
         uint16_t size = static_cast<uint16_t>(
             frame->size > 0xffffU ? 0xffffU : frame->size);
@@ -397,6 +411,12 @@ private:
             send_status(fd);
         } else if (path.rfind("/api/record", 0) == 0) {
             handle_record(fd, parse_seconds(path), parse_format(path));
+        } else if (path.rfind("/api/long_record/start", 0) == 0) {
+            handle_long_record_start(fd, parse_format(path));
+        } else if (path.rfind("/api/long_record/stop", 0) == 0) {
+            handle_long_record_stop(fd);
+        } else if (path.rfind("/api/long_record/download", 0) == 0) {
+            handle_long_record_download(fd);
         } else if (path.rfind("/api/play", 0) == 0) {
             handle_play(fd);
         } else if (path.rfind("/api/sweep", 0) == 0) {
@@ -462,6 +482,7 @@ private:
             audio_buffer_.encoded.clear();
             audio_buffer_.frames = 0;
             audio_buffer_.bytes = 0;
+            audio_buffer_.stream_to_file = false;
         }
 
         ehal_audio_codec_t codec = format == "opus" ?
@@ -495,6 +516,123 @@ private:
             std::vector<uint8_t> wav = make_wav_from_pcm(encoded, 16000, 1, 16);
             send_response(fd, 200, "audio/wav", wav);
         }
+    }
+
+    void handle_long_record_start(int fd, const std::string &format)
+    {
+        std::unique_lock<std::mutex> record_lock(record_mutex_, std::try_to_lock);
+        if (!record_lock.owns_lock()) {
+            send_text(fd, 409, "text/plain; charset=utf-8", "audio operation is already running\n");
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(playback_mutex_);
+            if (playback_running_) {
+                send_text(fd, 409, "text/plain; charset=utf-8", "speaker playback is already running\n");
+                return;
+            }
+        }
+        ehal_audio_codec_t codec = format == "opus" ? EHAL_AUDIO_CODEC_OPUS : EHAL_AUDIO_CODEC_PCM;
+        {
+            std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
+            audio_buffer_.encoded.clear();
+            audio_buffer_.frames = 0;
+            audio_buffer_.bytes = 0;
+            audio_buffer_.stream_file.close();
+            long_record_path_ = std::string("/tmp/mic_long_recording.") + (format == "opus" ? "opus" : "pcm");
+            audio_buffer_.stream_file.open(long_record_path_, std::ios::binary | std::ios::trunc);
+            if (!audio_buffer_.stream_file.is_open()) {
+                send_text(fd, 500, "text/plain; charset=utf-8", "cannot open long recording file\n");
+                return;
+            }
+            audio_buffer_.stream_to_file = true;
+        }
+        int ret = configure_audio(codec, 1, 0);
+        active_codec_ = codec;
+        if (ret == EHAL_OK) ret = start_audio();
+        if (ret != EHAL_OK) {
+            send_text(fd, 500, "text/plain; charset=utf-8",
+                      std::string("audio start failed: ") + ehal_audio_error_string(ret) + "\n");
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(long_record_mutex_);
+            long_record_started_ = std::chrono::steady_clock::now();
+            long_record_format_ = format;
+            long_record_lock_ = std::make_unique<std::unique_lock<std::mutex>>(std::move(record_lock));
+        }
+        send_text(fd, 200, "application/json; charset=utf-8",
+                  std::string("{\"ok\":true,\"recording\":true,\"format\":\"") + format + "\"}\n");
+    }
+
+    void handle_long_record_stop(int fd)
+    {
+        std::unique_ptr<std::unique_lock<std::mutex>> held_lock;
+        std::string format;
+        uint64_t frames = 0;
+        uint64_t bytes = 0;
+        {
+            std::lock_guard<std::mutex> lock(long_record_mutex_);
+            if (!long_record_lock_) {
+                send_text(fd, 409, "text/plain; charset=utf-8", "long recording is not running\n");
+                return;
+            }
+            held_lock = std::move(long_record_lock_);
+            format = long_record_format_;
+        }
+        stop_audio();
+        {
+            std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
+            frames = audio_buffer_.frames;
+            bytes = audio_buffer_.bytes;
+            audio_buffer_.stream_file.flush();
+            audio_buffer_.stream_file.close();
+            audio_buffer_.stream_to_file = false;
+        }
+        held_lock.reset();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - long_record_started_).count();
+        send_text(fd, 200, "application/json; charset=utf-8",
+                  std::string("{\"ok\":true,\"recording\":false,\"format\":\"") + format +
+                      "\",\"duration_ms\":" + std::to_string(elapsed) +
+                      ",\"frames\":" + std::to_string(frames) +
+                      ",\"bytes\":" + std::to_string(bytes) +
+                      ",\"download\":\"/api/long_record/download\"}\n");
+    }
+
+    void handle_long_record_download(int fd)
+    {
+        std::vector<uint8_t> data;
+        std::string format;
+        {
+            std::lock_guard<std::mutex> lock(long_record_mutex_);
+            if (long_record_lock_) {
+                send_text(fd, 409, "text/plain; charset=utf-8", "stop the long recording before downloading\n");
+                return;
+            }
+            format = long_record_format_;
+        }
+        std::ifstream file(long_record_path_, std::ios::binary);
+        if (!file.is_open()) {
+            send_text(fd, 404, "text/plain; charset=utf-8", "no saved long recording\n");
+            return;
+        }
+        file.seekg(0, std::ios::end); const uint64_t raw_size = static_cast<uint64_t>(file.tellg()); file.seekg(0);
+        const uint64_t output_size = format == "pcm" ? raw_size + 44U : raw_size;
+        const std::string type = format == "opus" ? "application/octet-stream" : "audio/wav";
+        const std::string name = format == "opus" ? "long-recording.opus" : "long-recording.wav";
+        std::ostringstream header;
+        header << "HTTP/1.1 200 OK\r\nContent-Type: " << type << "\r\nContent-Length: " << output_size
+               << "\r\nContent-Disposition: attachment; filename=\"" << name << "\"\r\nConnection: close\r\n\r\n";
+        std::string h = header.str();
+        (void)send_all(fd, h.data(), h.size());
+        if (format == "pcm") {
+            std::vector<uint8_t> wav_header = make_wav_from_pcm({}, 16000, 1, 16);
+            uint32_t size32 = static_cast<uint32_t>(raw_size); std::memcpy(&wav_header[4], &size32, 4); uint32_t riff = size32 + 36U; std::memcpy(&wav_header[40], &size32, 4); std::memcpy(&wav_header[4], &riff, 4);
+            (void)send_all(fd, wav_header.data(), wav_header.size());
+        }
+        std::vector<uint8_t> chunk(64 * 1024);
+        while (file) { file.read(reinterpret_cast<char *>(chunk.data()), chunk.size()); std::streamsize n = file.gcount(); if (n > 0 && !send_all(fd, chunk.data(), static_cast<size_t>(n))) break; }
     }
 
     static int parse_volume(const std::string &path)
@@ -672,6 +810,11 @@ private:
     std::mutex audio_mutex_;
     std::mutex record_mutex_;
     std::mutex playback_mutex_;
+    std::mutex long_record_mutex_;
+    std::unique_ptr<std::unique_lock<std::mutex>> long_record_lock_;
+    std::chrono::steady_clock::time_point long_record_started_{};
+    std::string long_record_format_ = "pcm";
+    std::string long_record_path_;
     std::thread playback_thread_;
     bool running_ = false;
     bool record_enabled_ = false;
