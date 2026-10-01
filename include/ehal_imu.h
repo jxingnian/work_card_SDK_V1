@@ -12,12 +12,12 @@ typedef struct ehal_imu ehal_imu_t;
 
 typedef struct {
     const char *i2c_device;       /* default: /dev/i2c-1 (I2C1_SDA/SCL) */
-    unsigned int i2c_address;     /* 0x6a (SA0 high) or 0x6b (SA0 low) */
+    unsigned int i2c_address;     /* 0x19 (SDO high/floating) or 0x18 (SDO low) */
     const char *int1_value_path;  /* optional sysfs GPIO value path */
     unsigned int accel_odr_hz;    /* 0 keeps the QMI8658C default */
     unsigned int gyro_odr_hz;     /* 0 keeps the QMI8658C default */
-    int enable_gyro;
-    int enable_attitude_engine;
+    int enable_gyro;              /* retained for ABI compatibility; SC7A20H is accel-only */
+    int enable_attitude_engine;   /* retained for ABI compatibility */
 } ehal_imu_config_t;
 
 typedef struct {

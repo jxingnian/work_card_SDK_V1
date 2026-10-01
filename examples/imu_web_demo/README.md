@@ -7,4 +7,4 @@
 ./build/imu_web_demo/imu_web_demo --port 8081 --web-root examples/imu_web_demo/web
 ```
 
-浏览器访问 `http://<开发板IP>:8081/`。可用 `IMU_I2C_DEVICE=/dev/i2c-1` 和 `IMU_I2C_ADDR=0x6a` 覆盖默认值。初始化会校验 `WHO_AM_I=0x05`。
+浏览器访问 `http://<开发板IP>:8081/`。可用 `IMU_I2C_DEVICE=/dev/i2c-1` 和 `IMU_I2C_ADDR=0x19` 覆盖默认值。初始化会校验 `WHO_AM_I=0x11`。SC7A20H 是三轴加速度计，不提供陀螺仪角速度，网页中的角速度固定显示为 0。

@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
   int port = 8081; std::string root = "web";
   for (int i=1;i<argc;i++) { if (!std::strcmp(argv[i], "--port") && i+1<argc) port=std::atoi(argv[++i]); else if (!std::strcmp(argv[i], "--web-root") && i+1<argc) root=argv[++i]; }
   std::signal(SIGINT, stop); std::signal(SIGTERM, stop);
-  ehal_imu_config_t cfg{}; cfg.i2c_device = std::getenv("IMU_I2C_DEVICE"); cfg.i2c_address = std::getenv("IMU_I2C_ADDR") ? std::strtoul(std::getenv("IMU_I2C_ADDR"), nullptr, 0) : 0x6A; cfg.enable_gyro=1;
+  ehal_imu_config_t cfg{}; cfg.i2c_device = std::getenv("IMU_I2C_DEVICE"); cfg.i2c_address = std::getenv("IMU_I2C_ADDR") ? std::strtoul(std::getenv("IMU_I2C_ADDR"), nullptr, 0) : 0x19; cfg.enable_gyro=0;
   ehal_imu_t *imu=nullptr; const auto ir=ehal_imu_create(&cfg, &imu); if (ir != EHAL_OK) { std::cerr << "IMU init failed: " << ir << '\n'; return 2; }
   int s=socket(AF_INET,SOCK_STREAM,0); int yes=1; setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes)); sockaddr_in a{}; a.sin_family=AF_INET; a.sin_addr.s_addr=htonl(INADDR_ANY); a.sin_port=htons(static_cast<uint16_t>(port));
   if (bind(s,reinterpret_cast<sockaddr*>(&a),sizeof(a))<0 || listen(s,8)<0) { std::cerr<<"HTTP bind failed: "<<std::strerror(errno)<<'\n'; ehal_imu_destroy(imu); return 3; }
