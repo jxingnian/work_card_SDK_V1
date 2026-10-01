@@ -547,7 +547,10 @@ private:
             }
             audio_buffer_.stream_to_file = true;
         }
-        int ret = configure_audio(codec, 1, 0);
+        // Enable the playback path/power amplifier for the noise test, but do
+        // not submit any playback data. The microphone is recorded while the
+        // amplifier hardware is powered on in an idle state.
+        int ret = configure_audio(codec, 1, 1);
         active_codec_ = codec;
         if (ret == EHAL_OK) ret = start_audio();
         if (ret != EHAL_OK) {
@@ -562,7 +565,8 @@ private:
             long_record_lock_ = std::make_unique<std::unique_lock<std::mutex>>(std::move(record_lock));
         }
         send_text(fd, 200, "application/json; charset=utf-8",
-                  std::string("{\"ok\":true,\"recording\":true,\"format\":\"") + format + "\"}\n");
+                  std::string("{\"ok\":true,\"recording\":true,\"format\":\"") + format +
+                      "\",\"amplifier_enabled\":true,\"playback_started\":false}\n");
     }
 
     void handle_long_record_stop(int fd)
