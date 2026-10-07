@@ -74,6 +74,13 @@ int ehal_audio_create(ehal_audio_t **audio);
 int ehal_audio_configure(ehal_audio_t *audio,
                          const ehal_audio_config_t *config);
 int ehal_audio_start(ehal_audio_t *audio);
+/* Select the physical microphone before start (mono AI device 0).
+ * left=MIC1/AC_INL, right=MIC2/AC_INR. Cannot change while running. */
+typedef enum {
+    EHAL_AUDIO_INPUT_LEFT = 0,
+    EHAL_AUDIO_INPUT_RIGHT = 1
+} ehal_audio_input_t;
+int ehal_audio_set_input_channel(ehal_audio_t *audio, ehal_audio_input_t input);
 int ehal_audio_stop(ehal_audio_t *audio);
 void ehal_audio_destroy(ehal_audio_t *audio);
 
