@@ -13,18 +13,18 @@
                 "frm_cnt": 10,
                 "resample": false,
                 "resample_rate": 0,
-                "volume": 100
+                "volume": 0
             },
             {
                 "dev": 1,
-                "sample_rate": 16000,
+                "sample_rate": 48000,
                 "channels": 2,
                 "bit_width": 16,
-                "pt_num_per_frm": 320,
+                "pt_num_per_frm": 960,
                 "frm_cnt": 10,
                 "resample": true,
                 "resample_rate": 8000,
-                "volume": 100
+                "volume": 0
             }
         ],
         "ao": [
@@ -37,7 +37,7 @@
                 "frm_cnt": 10,
                 "resample": false,
                 "resample_rate": 0,
-                "volume": 100,
+                "volume": 0,
                 "mute": false
             }
         ],
@@ -218,3 +218,6 @@
         }
     ]
 }
+
+
+

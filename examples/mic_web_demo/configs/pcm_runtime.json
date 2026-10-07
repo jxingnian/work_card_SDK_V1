@@ -6,25 +6,25 @@
         "ai": [
             {
                 "dev": 0,
-                "sample_rate": 16000,
+                "sample_rate": 48000,
                 "channels": 1,
                 "bit_width": 16,
-                "pt_num_per_frm": 320,
+                "pt_num_per_frm": 960,
                 "frm_cnt": 10,
                 "resample": false,
                 "resample_rate": 0,
-                "volume": 100
+                "volume": 0
             }
         ],
         "aenc": [
             {
                 "chn": 0,
                 "encode_fmt": "PCM",
-                "sample_rate": 16000,
+                "sample_rate": 48000,
                 "channels": 1,
                 "bit_width": 16,
-                "bit_rate": 256000,
-                "pt_num_per_frm": 320
+                "bit_rate": 768000,
+                "pt_num_per_frm": 960
             }
         ]
     },
@@ -47,3 +47,6 @@
         ]
     }
 }
+
+
+

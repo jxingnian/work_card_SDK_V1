@@ -1,9 +1,11 @@
 #include "ehal_audio.h"
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -160,6 +162,76 @@ std::vector<uint8_t> make_wav_from_pcm(const std::vector<uint8_t> &pcm,
     return wav;
 }
 
+bool read_binary_file(const std::string &path, std::vector<uint8_t> *data)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) return false;
+    file.seekg(0, std::ios::end);
+    std::streamoff size = file.tellg();
+    if (size <= 0) return false;
+    file.seekg(0, std::ios::beg);
+    data->resize(static_cast<size_t>(size));
+    file.read(reinterpret_cast<char *>(data->data()), size);
+    return file.good() || file.eof();
+}
+
+bool configure_official_mic_gain()
+{
+    const int ret = system("/root/mic_gain_demo/bin/mic_gain_demo >/tmp/mic_web_demo/gain.log 2>&1");
+    std::fprintf(stderr, "[mic_web] mic_gain_demo ret=%d\n", ret);
+    std::fflush(stderr);
+    return ret == 0;
+}
+
+bool capture_with_official_sample(int input, int seconds, std::vector<uint8_t> *pcm)
+{
+    const char *sample = input == 1 ? "/root/sample_audio_r" : "/root/sample_audio_l";
+    const std::string dir = input == 1 ? "/tmp/mic_web_demo/sample_right" :
+                                         "/tmp/mic_web_demo/sample_left";
+    const std::string pcm_path = dir + "/audio_chn0.pcm";
+    const std::string log_path = dir + "/sample.log";
+    (void)system(("mkdir -p " + dir + " && rm -f " + pcm_path).c_str());
+    if (!configure_official_mic_gain()) return false;
+
+    int input_pipe[2];
+    if (pipe(input_pipe) != 0) return false;
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(input_pipe[0]);
+        close(input_pipe[1]);
+        return false;
+    }
+    if (pid == 0) {
+        int log_fd = open(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (log_fd >= 0) {
+            dup2(log_fd, STDOUT_FILENO);
+            dup2(log_fd, STDERR_FILENO);
+            close(log_fd);
+        }
+        dup2(input_pipe[0], STDIN_FILENO);
+        close(input_pipe[0]);
+        close(input_pipe[1]);
+        if (chdir(dir.c_str()) != 0) _exit(126);
+        execl(sample, sample, "1", "7", static_cast<char *>(nullptr));
+        _exit(127);
+    }
+    close(input_pipe[0]);
+    std::fprintf(stderr, "[mic_web] official capture start input=%s pid=%d seconds=%d\n",
+                 input == 1 ? "right" : "left", static_cast<int>(pid), seconds);
+    std::fflush(stderr);
+    sleep(static_cast<unsigned int>(seconds));
+    (void)write(input_pipe[1], "\n\n", 2);
+    close(input_pipe[1]);
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) return false;
+    bool exited = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    bool loaded = read_binary_file(pcm_path, pcm);
+    std::fprintf(stderr, "[mic_web] official capture stop exited=%d status=%d pcm=%zu log=%s\n",
+                 exited ? 1 : 0, status, pcm->size(), log_path.c_str());
+    std::fflush(stderr);
+    return exited && loaded && !pcm->empty();
+}
+
 uint32_t ogg_crc(const std::vector<uint8_t> &data)
 {
     uint32_t crc = 0;
@@ -287,6 +359,14 @@ void audio_callback(const ehal_audio_frame_t *frame, void *user_data)
     buffer->encoded.insert(buffer->encoded.end(), frame->data, frame->data + frame->size);
     buffer->frames++;
     buffer->bytes += frame->size;
+    if (buffer->frames == 1U || (buffer->frames % 50U) == 0U) {
+        std::fprintf(stderr, "[mic_web] capture frame=%llu bytes=%llu codec=%d size=%u rate=%u channels=%u\n",
+                     static_cast<unsigned long long>(buffer->frames),
+                     static_cast<unsigned long long>(buffer->bytes),
+                     static_cast<int>(frame->codec), frame->size,
+                     frame->sample_rate, frame->channels);
+        std::fflush(stderr);
+    }
 }
 
 int parse_seconds(const std::string &path)
@@ -307,6 +387,11 @@ std::string parse_format(const std::string &path)
 class MicWebDemo {
 public:
     explicit MicWebDemo(Config config) : config_(std::move(config)) {}
+
+    int start_for_main()
+    {
+        return start_audio();
+    }
 
     ~MicWebDemo()
     {
@@ -330,8 +415,12 @@ public:
         }
         record_enabled_ = enable_record != 0;
         playback_enabled_ = enable_playback != 0;
+        std::fprintf(stderr, "[mic_web] configure begin codec=%d record=%d playback=%d input=%d volume=%d\n",
+                     static_cast<int>(codec), enable_record, enable_playback, input, input_volume_);
         int ret = ehal_audio_create(&audio_);
         if (ret != EHAL_OK) {
+            std::fprintf(stderr, "[mic_web] ehal_audio_create ret=%d (%s)\n",
+                         ret, ehal_audio_error_string(ret));
             return ret;
         }
         ehal_audio_config_t audio_config{};
@@ -343,13 +432,15 @@ public:
         audio_config.enable_record = enable_record;
         audio_config.enable_playback = enable_playback;
         audio_config.ai_dev = 0;
+        audio_config.ao_dev = 0;
         audio_config.aenc_channel = 0;
+        audio_config.record_pipeline_name = "audio_record";
         audio_config.input_volume = input_volume_;
         audio_config.output_volume = output_volume_;
         audio_config.playback_pipeline_name =
             enable_playback && codec == EHAL_AUDIO_CODEC_PCM ?
                 "audio_playback_pcm" : "audio_playback";
-        audio_config.sample_rate = 16000;
+        audio_config.sample_rate = 48000;
         audio_config.channels = 1;
         audio_config.bit_width = 16;
         audio_config.samples_per_frame = 320;
@@ -357,8 +448,16 @@ public:
         audio_config.capture_callback = audio_callback;
         audio_config.user_data = &audio_buffer_;
         ret = ehal_audio_configure(audio_, &audio_config);
-        if (ret == EHAL_OK) ret = ehal_audio_set_input_channel(audio_,
-            input == 1 ? EHAL_AUDIO_INPUT_RIGHT : EHAL_AUDIO_INPUT_LEFT);
+        std::fprintf(stderr, "[mic_web] ehal_audio_configure ret=%d (%s)\n",
+                     ret, ehal_audio_error_string(ret));
+        if (ret == EHAL_OK) {
+            int channel_ret = ehal_audio_set_input_channel(audio_,
+                input == 1 ? EHAL_AUDIO_INPUT_RIGHT : EHAL_AUDIO_INPUT_LEFT);
+            std::fprintf(stderr, "[mic_web] ehal_audio_set_input_channel channel=%s ret=%d (%s)\n",
+                         input == 1 ? "right" : "left", channel_ret,
+                         ehal_audio_error_string(channel_ret));
+            ret = channel_ret;
+        }
         return ret;
     }
 
@@ -474,7 +573,7 @@ private:
             << ",\"right_saved\":" << (!saved_paths_[1].empty() ? "true" : "false")
             << ",\"capture_frames\":" << stats.capture_frames
             << ",\"capture_bytes\":" << stats.capture_bytes
-            << ",\"sample_rate\":16000,\"channels\":1,\"codec\":\""
+            << ",\"sample_rate\":48000,\"channels\":1,\"codec\":\""
             << (active_codec_ == EHAL_AUDIO_CODEC_OPUS ? "OPUS" : "PCM") << "\"}";
         send_text(fd, 200, "application/json; charset=utf-8", out.str());
     }
@@ -485,6 +584,17 @@ private:
         if (!record_lock.owns_lock()) {
             send_text(fd, 409, "text/plain; charset=utf-8",
                       "audio operation is already running\n");
+            return;
+        }
+        if (format == "pcm") {
+            std::vector<uint8_t> pcm;
+            if (!capture_with_official_sample(active_input_, seconds, &pcm)) {
+                send_text(fd, 500, "text/plain; charset=utf-8",
+                          "official microphone capture failed\n");
+                return;
+            }
+            send_response(fd, 200, "audio/wav",
+                          make_wav_from_pcm(pcm, 48000, 1, 16));
             return;
         }
         {
@@ -505,16 +615,27 @@ private:
 
         ehal_audio_codec_t codec = format == "opus" ?
             EHAL_AUDIO_CODEC_OPUS : EHAL_AUDIO_CODEC_PCM;
-        int ret = configure_audio(codec, 1, 0);
+        std::fprintf(stderr, "[mic_web] record request seconds=%d format=%s\n",
+                     seconds, format.c_str());
+        int ret = EHAL_OK;
+        if (audio_ == nullptr) {
+            ret = configure_audio(codec, 1, 1);
+        } else {
+            std::fprintf(stderr, "[mic_web] reuse configured audio handle for record\n");
+        }
         active_codec_ = codec;
         if (ret == EHAL_OK) {
             ret = start_audio();
         }
         if (ret != EHAL_OK) {
+            std::fprintf(stderr, "[mic_web] record start failed ret=%d (%s)\n",
+                         ret, ehal_audio_error_string(ret));
             send_text(fd, 500, "text/plain; charset=utf-8",
-                      std::string("audio start failed: ") + ehal_audio_error_string(ret) + "\n");
+                      std::string("audio start failed: ") + ehal_audio_error_string(ret) +
+                      " (ret=" + std::to_string(ret) + ")\n");
             return;
         }
+        std::fprintf(stderr, "[mic_web] record started, waiting %d seconds\n", seconds);
         std::this_thread::sleep_for(std::chrono::seconds(seconds));
         stop_audio();
 
@@ -522,16 +643,20 @@ private:
         {
             std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
             encoded = audio_buffer_.encoded;
+            std::fprintf(stderr, "[mic_web] record stopped frames=%llu bytes=%llu encoded=%zu write_failed=%d\n",
+                         static_cast<unsigned long long>(audio_buffer_.frames),
+                         static_cast<unsigned long long>(audio_buffer_.bytes),
+                         encoded.size(), audio_buffer_.write_failed ? 1 : 0);
         }
         if (encoded.empty()) {
             send_text(fd, 500, "text/plain; charset=utf-8", "no microphone audio captured\n");
             return;
         }
         if (codec == EHAL_AUDIO_CODEC_OPUS) {
-            std::vector<uint8_t> ogg = make_ogg_opus(encoded, 16000, 1);
+            std::vector<uint8_t> ogg = make_ogg_opus(encoded, 48000, 1);
             send_response(fd, 200, "audio/ogg", ogg);
         } else {
-            std::vector<uint8_t> wav = make_wav_from_pcm(encoded, 16000, 1, 16);
+            std::vector<uint8_t> wav = make_wav_from_pcm(encoded, 48000, 1, 16);
             send_response(fd, 200, "audio/wav", wav);
         }
     }
@@ -553,32 +678,34 @@ private:
             send_text(fd, 409, "text/plain", "audio operation is already running"); return;
         }
         const std::string pending = std::string("/tmp/mic_") + (input ? "right" : "left") + ".pending.pcm";
-        {
-            std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
-            audio_buffer_.encoded.clear();
-            audio_buffer_.frames = 0;
-            audio_buffer_.bytes = 0;
-            audio_buffer_.write_failed = false;
-            audio_buffer_.stream_file.close();
-            audio_buffer_.stream_file.clear();
-            audio_buffer_.stream_file.open(pending, std::ios::binary | std::ios::trunc);
-            if (!audio_buffer_.stream_file) {
-                send_text(fd, 500, "text/plain", "cannot create recording file"); return;
-            }
-            audio_buffer_.stream_to_file = true;
-        }
-        int ret = configure_audio(EHAL_AUDIO_CODEC_PCM, 1, 0, input);
-        active_codec_ = EHAL_AUDIO_CODEC_PCM;
-        if (ret == EHAL_OK) ret = start_audio();
-        if (ret != EHAL_OK) {
-            stop_audio();
-            std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
-            audio_buffer_.stream_file.close();
-            audio_buffer_.stream_to_file = false;
-            std::remove(pending.c_str());
-            send_text(fd, 500, "text/plain", std::string("microphone start failed: ") + ehal_audio_error_string(ret));
+        const char *sample = input == 1 ? "/root/sample_audio_r" : "/root/sample_audio_l";
+        const std::string dir = input == 1 ? "/tmp/mic_web_demo/long_right" :
+                                             "/tmp/mic_web_demo/long_left";
+        const std::string pcm = dir + "/audio_chn0.pcm";
+        (void)system(("mkdir -p " + dir + " && rm -f " + pcm).c_str());
+        if (!configure_official_mic_gain()) {
+            send_text(fd, 500, "text/plain", "cannot configure microphone gain");
             return;
         }
+        int pipes[2];
+        if (pipe(pipes) != 0) {
+            send_text(fd, 500, "text/plain", "cannot start official microphone capture"); return;
+        }
+        official_pid_ = fork();
+        if (official_pid_ < 0) {
+            close(pipes[0]); close(pipes[1]);
+            send_text(fd, 500, "text/plain", "cannot start official microphone capture"); return;
+        }
+        if (official_pid_ == 0) {
+            dup2(pipes[0], STDIN_FILENO);
+            close(pipes[0]); close(pipes[1]);
+            if (chdir(dir.c_str()) != 0) _exit(126);
+            execl(sample, sample, "1", "7", static_cast<char *>(nullptr));
+            _exit(127);
+        }
+        close(pipes[0]);
+        official_stdin_ = pipes[1];
+        official_pcm_path_ = pcm;
         long_record_path_ = pending;
         active_input_ = input;
         long_record_active_ = true;
@@ -592,16 +719,19 @@ private:
         if (!long_record_active_ || input != active_input_) {
             send_text(fd, 409, "text/plain", "this microphone is not recording"); return;
         }
-        stop_audio();
-        uint64_t bytes;
-        bool failed;
-        {
-            std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
-            audio_buffer_.stream_file.flush();
-            failed = audio_buffer_.write_failed || !audio_buffer_.stream_file;
-            audio_buffer_.stream_file.close();
-            audio_buffer_.stream_to_file = false;
-            bytes = audio_buffer_.bytes;
+        (void)write(official_stdin_, "\n\n", 2);
+        close(official_stdin_);
+        official_stdin_ = -1;
+        int status = 0;
+        (void)waitpid(official_pid_, &status, 0);
+        official_pid_ = -1;
+        std::vector<uint8_t> pcm;
+        bool failed = !read_binary_file(official_pcm_path_, &pcm);
+        uint64_t bytes = pcm.size();
+        if (!failed) {
+            std::ofstream out(long_record_path_, std::ios::binary | std::ios::trunc);
+            out.write(reinterpret_cast<const char *>(pcm.data()), pcm.size());
+            failed = !out.good();
         }
         long_record_active_ = false;
         const std::string saved = std::string("/tmp/mic_") + (input ? "right" : "left") + ".pcm";
@@ -633,7 +763,7 @@ private:
         uint32_t bytes = static_cast<uint32_t>(end);
         file.seekg(0);
         operation.unlock();
-        auto wav = make_wav_from_pcm({}, 16000, 1, 16);
+        auto wav = make_wav_from_pcm({}, 48000, 1, 16);
         for (int i = 0; i < 4; ++i) {
             wav[4 + i] = static_cast<uint8_t>((bytes + 36U) >> (8 * i));
             wav[40 + i] = static_cast<uint8_t>(bytes >> (8 * i));
@@ -761,7 +891,7 @@ private:
         std::vector<uint8_t> pcm;
         { std::lock_guard<std::mutex> lock(audio_buffer_.mutex); pcm = audio_buffer_.encoded; }
         if (pcm.empty()) { send_text(fd, 500, "text/plain; charset=utf-8", "no microphone audio captured\n"); return; }
-        send_response(fd, 200, "audio/wav", make_wav_from_pcm(pcm, 16000, 1, 16));
+        send_response(fd, 200, "audio/wav", make_wav_from_pcm(pcm, 48000, 1, 16));
     }
 
     void handle_stop(int fd)
@@ -798,15 +928,28 @@ private:
     {
         std::lock_guard<std::mutex> lock(audio_mutex_);
         if (running_) {
+            std::fprintf(stderr, "[mic_web] start skipped: already running\n");
             return EHAL_OK;
         }
+        if (audio_ == nullptr) {
+            std::fprintf(stderr, "[mic_web] ehal_audio_start skipped: audio handle is null\n");
+            return EHAL_ERR_STATE;
+        }
+        std::fprintf(stderr, "[mic_web] ehal_audio_start begin record=%d playback=%d\n",
+                     record_enabled_ ? 1 : 0, playback_enabled_ ? 1 : 0);
         int ret = ehal_audio_start(audio_);
+        std::fprintf(stderr, "[mic_web] ehal_audio_start ret=%d (%s)\n",
+                     ret, ehal_audio_error_string(ret));
         if (ret == EHAL_OK) {
             if (record_enabled_) {
-                (void)ehal_audio_set_input_volume(audio_, input_volume_);
+                int volume_ret = ehal_audio_set_input_volume(audio_, input_volume_);
+                std::fprintf(stderr, "[mic_web] ehal_audio_set_input_volume volume=%d ret=%d (%s)\n",
+                             input_volume_, volume_ret, ehal_audio_error_string(volume_ret));
             }
             if (playback_enabled_) {
-                (void)ehal_audio_set_output_volume(audio_, output_volume_);
+                int volume_ret = ehal_audio_set_output_volume(audio_, output_volume_);
+                std::fprintf(stderr, "[mic_web] ehal_audio_set_output_volume volume=%d ret=%d (%s)\n",
+                             output_volume_, volume_ret, ehal_audio_error_string(volume_ret));
             }
             running_ = true;
         }
@@ -817,7 +960,9 @@ private:
     {
         std::lock_guard<std::mutex> lock(audio_mutex_);
         if (audio_ != nullptr && running_) {
-            (void)ehal_audio_stop(audio_);
+            int ret = ehal_audio_stop(audio_);
+            std::fprintf(stderr, "[mic_web] ehal_audio_stop ret=%d (%s)\n",
+                         ret, ehal_audio_error_string(ret));
             running_ = false;
         }
     }
@@ -835,12 +980,19 @@ private:
     std::chrono::steady_clock::time_point long_record_started_{};
     std::string long_record_path_;
     std::thread playback_thread_;
+    pid_t official_pid_ = -1;
+    int official_stdin_ = -1;
+    std::string official_pcm_path_;
     bool running_ = false;
     bool record_enabled_ = false;
     bool playback_enabled_ = false;
     std::atomic<bool> playback_running_{false};
-    int input_volume_ = 50;
-    int output_volume_ = 100;
+    // The board codec rejects 100 with EINVAL; 80 is the validated maximum.
+    // The board codec rejects the HAL's analog gain setup when a nonzero
+    // runtime input volume is requested. mic_gain_demo configures the
+    // hardware gain directly, so leave HAL input volume at its safe default.
+    int input_volume_ = 0;
+    int output_volume_ = 80;
     ehal_audio_codec_t active_codec_ = EHAL_AUDIO_CODEC_PCM;
 };
 
@@ -877,7 +1029,7 @@ int main(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
     Config config = parse_args(argc, argv);
     MicWebDemo demo(config);
-    int ret = demo.configure_audio(EHAL_AUDIO_CODEC_PCM, 1, 0);
+    int ret = demo.configure_audio(EHAL_AUDIO_CODEC_PCM, 1, 1);
     if (ret != EHAL_OK) {
         std::fprintf(stderr, "init audio failed: %s\n", ehal_audio_error_string(ret));
         return ret;
