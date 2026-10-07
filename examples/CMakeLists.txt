@@ -14,6 +14,7 @@ add_executable(key_cli_demo key_cli_demo/key_cli_demo.cpp)
 add_executable(bluetooth_cli_demo bluetooth_cli_demo/bluetooth_cli_demo.cpp)
 add_executable(bluetooth_web_demo bluetooth_web_demo/bluetooth_web_demo.cpp)
 add_executable(location_cli_demo location_cli_demo/location_cli_demo.cpp)
+add_executable(mic_gain_demo mic_gain_demo/mic_gain_demo.cpp)
 
 set(EHAL_SDK_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 set(EHAL_SDK_LIB_DIR "${EHAL_SDK_ROOT}/lib")
@@ -39,6 +40,11 @@ target_include_directories(bluetooth_web_demo PRIVATE
 )
 target_include_directories(location_cli_demo PRIVATE
     "${EHAL_SDK_ROOT}/include"
+)
+target_include_directories(mic_gain_demo PRIVATE
+    "${EHAL_SDK_ROOT}/include"
+    "${EHAL_SDK_ROOT}/../include"
+    "${EHAL_SDK_ROOT}/../include/chip/hi3516cv610"
 )
 
 target_link_directories(camera_web_demo PRIVATE
@@ -167,11 +173,12 @@ target_link_libraries(bluetooth_web_demo PRIVATE
 target_link_libraries(location_cli_demo PRIVATE
     pthread
 )
+target_link_libraries(mic_gain_demo PRIVATE)
 target_link_options(mic_web_demo PRIVATE
     -Wl,--allow-shlib-undefined
 )
 
-install(TARGETS camera_web_demo wifi_cli_demo mic_web_demo key_cli_demo bluetooth_cli_demo bluetooth_web_demo location_cli_demo
+install(TARGETS camera_web_demo wifi_cli_demo mic_web_demo key_cli_demo bluetooth_cli_demo bluetooth_web_demo location_cli_demo mic_gain_demo
     RUNTIME DESTINATION bin
 )
 
@@ -211,6 +218,7 @@ install(PROGRAMS
     bluetooth_cli_demo/run_bluetooth_cli_demo.sh
     bluetooth_web_demo/run_bluetooth_web_demo.sh
     location_cli_demo/run_location_cli_demo.sh
+    mic_gain_demo/run_mic_gain_demo.sh
     DESTINATION .
 )
 
