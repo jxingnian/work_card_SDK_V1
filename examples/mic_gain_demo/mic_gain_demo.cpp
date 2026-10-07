@@ -46,8 +46,16 @@ int main()
     bool ok = true;
     ok = set_value(fd, OT_ACODEC_ENABLE_BOOSTL, kBoostEnabled, "boost_left") && ok;
     ok = set_value(fd, OT_ACODEC_ENABLE_BOOSTR, kBoostEnabled, "boost_right") && ok;
-    ok = set_value(fd, OT_ACODEC_SET_GAIN_MICL, kMicGainMaximum, "mic_gain_left") && ok;
-    ok = set_value(fd, OT_ACODEC_SET_GAIN_MICR, kMicGainMaximum, "mic_gain_right") && ok;
+    // Probe down because some codec revisions reject 0x1f with EPERM.
+    auto set_gain_compat = [&](unsigned long request, const char *name) {
+        for (td_u32 gain = kMicGainMaximum;; --gain) {
+            if (set_value(fd, request, gain, name)) return true;
+            if (gain == 0U) break;
+        }
+        return false;
+    };
+    ok = set_gain_compat(OT_ACODEC_SET_GAIN_MICL, "mic_gain_left") && ok;
+    ok = set_gain_compat(OT_ACODEC_SET_GAIN_MICR, "mic_gain_right") && ok;
     ok = set_value(fd, OT_ACODEC_SET_INPUT_VOLUME, kInputVolumeMaximumDb, "input_volume_db") && ok;
 
     td_u32 value = 0;
