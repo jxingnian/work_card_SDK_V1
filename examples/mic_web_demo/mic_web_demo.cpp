@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -45,6 +46,21 @@ struct AudioBuffer {
     bool write_failed = false;
     std::ofstream stream_file;
 };
+
+bool set_speaker_enable(bool enabled)
+{
+    const int fd = ::open("/sys/class/gpio/gpio53/value", O_WRONLY);
+    if (fd < 0) {
+        std::fprintf(stderr, "[mic_web] speaker enable GPIO53 open failed\n");
+        return false;
+    }
+    const char value = enabled ? '1' : '0';
+    const bool ok = ::write(fd, &value, 1) == 1;
+    ::close(fd);
+    std::fprintf(stderr, "[mic_web] speaker enable GPIO53=%d ret=%d\n",
+                 enabled ? 1 : 0, ok ? 0 : -1);
+    return ok;
+}
 
 void on_signal(int)
 {
@@ -678,33 +694,28 @@ private:
             send_text(fd, 409, "text/plain", "audio operation is already running"); return;
         }
         const std::string pending = std::string("/tmp/mic_") + (input ? "right" : "left") + ".pending.pcm";
-        const char *sample = input == 1 ? "/root/sample_audio_r" : "/root/sample_audio_l";
         const std::string dir = input == 1 ? "/tmp/mic_web_demo/long_right" :
                                              "/tmp/mic_web_demo/long_left";
         const std::string pcm = dir + "/audio_chn0.pcm";
         (void)system(("mkdir -p " + dir + " && rm -f " + pcm).c_str());
-        if (!configure_official_mic_gain()) {
-            send_text(fd, 500, "text/plain", "cannot configure microphone gain");
+        if (configure_audio(EHAL_AUDIO_CODEC_PCM, 1, 1, input) != EHAL_OK ||
+            start_audio() != EHAL_OK) {
+            send_text(fd, 500, "text/plain", "cannot start selected microphone");
             return;
         }
-        int pipes[2];
-        if (pipe(pipes) != 0) {
-            send_text(fd, 500, "text/plain", "cannot start official microphone capture"); return;
+        {
+            std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
+            audio_buffer_.stream_file.close();
+            audio_buffer_.stream_file.open(pcm, std::ios::binary | std::ios::trunc);
+            audio_buffer_.stream_to_file = audio_buffer_.stream_file.is_open();
+            audio_buffer_.frames = 0;
+            audio_buffer_.bytes = 0;
         }
-        official_pid_ = fork();
-        if (official_pid_ < 0) {
-            close(pipes[0]); close(pipes[1]);
-            send_text(fd, 500, "text/plain", "cannot start official microphone capture"); return;
+        if (!audio_buffer_.stream_to_file) {
+            stop_audio();
+            send_text(fd, 500, "text/plain", "cannot open selected microphone recording file");
+            return;
         }
-        if (official_pid_ == 0) {
-            dup2(pipes[0], STDIN_FILENO);
-            close(pipes[0]); close(pipes[1]);
-            if (chdir(dir.c_str()) != 0) _exit(126);
-            execl(sample, sample, "1", "7", static_cast<char *>(nullptr));
-            _exit(127);
-        }
-        close(pipes[0]);
-        official_stdin_ = pipes[1];
         official_pcm_path_ = pcm;
         long_record_path_ = pending;
         active_input_ = input;
@@ -719,12 +730,12 @@ private:
         if (!long_record_active_ || input != active_input_) {
             send_text(fd, 409, "text/plain", "this microphone is not recording"); return;
         }
-        (void)write(official_stdin_, "\n\n", 2);
-        close(official_stdin_);
-        official_stdin_ = -1;
-        int status = 0;
-        (void)waitpid(official_pid_, &status, 0);
-        official_pid_ = -1;
+        stop_audio();
+        {
+            std::lock_guard<std::mutex> lock(audio_buffer_.mutex);
+            audio_buffer_.stream_to_file = false;
+            audio_buffer_.stream_file.close();
+        }
         std::vector<uint8_t> pcm;
         bool failed = !read_binary_file(official_pcm_path_, &pcm);
         uint64_t bytes = pcm.size();
@@ -821,12 +832,19 @@ private:
             ret = start_audio();
         }
         if (ret != EHAL_OK) {
+            (void)set_speaker_enable(false);
             send_text(fd, 500, "text/plain; charset=utf-8",
                       std::string("speaker start failed: ") +
                           ehal_audio_error_string(ret) + "\n");
             return;
         }
 
+        if (!set_speaker_enable(true)) {
+            stop_audio();
+            send_text(fd, 500, "text/plain; charset=utf-8",
+                      "speaker enable GPIO6_5 failed\n");
+            return;
+        }
         playback_running_.store(true, std::memory_order_release);
         ret = ehal_audio_play_wav_file(audio_, config_.playback_audio.c_str(), 1000);
         if (ret != EHAL_OK) {
@@ -834,6 +852,7 @@ private:
                          ehal_audio_error_string(ret));
         }
         stop_audio();
+        (void)set_speaker_enable(false);
         playback_running_.store(false, std::memory_order_release);
         if (ret != EHAL_OK) {
             send_text(fd, 500, "text/plain; charset=utf-8",
@@ -991,7 +1010,7 @@ private:
     // The board codec rejects the HAL's analog gain setup when a nonzero
     // runtime input volume is requested. mic_gain_demo configures the
     // hardware gain directly, so leave HAL input volume at its safe default.
-    int input_volume_ = 0;
+    int input_volume_ = 30;
     int output_volume_ = 80;
     ehal_audio_codec_t active_codec_ = EHAL_AUDIO_CODEC_PCM;
 };

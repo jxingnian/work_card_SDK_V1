@@ -26,6 +26,20 @@
                 "bit_rate": 768000,
                 "pt_num_per_frm": 960
             }
+        ],
+        "ao": [
+            {
+                "dev": 0,
+                "sample_rate": 48000,
+                "channels": 1,
+                "bit_width": 16,
+                "pt_num_per_frm": 960,
+                "frm_cnt": 10,
+                "resample": false,
+                "resample_rate": 0,
+                "volume": 100,
+                "mute": false
+            }
         ]
     },
     "video": {
