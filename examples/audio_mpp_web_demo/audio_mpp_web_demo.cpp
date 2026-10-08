@@ -108,6 +108,14 @@ struct AudioState {
     ot_audio_track_mode ao_track = OT_AUDIO_TRACK_NORMAL;
     int ao_volume_db = 0;
     bool ao_mute = false;
+    int acodec_boost_l = 1;
+    int acodec_boost_r = 1;
+    int acodec_gain_micl = 31;
+    int acodec_gain_micr = 31;
+    int acodec_input_volume_db = 80;
+    int acodec_actual_gain_micl = -1;
+    int acodec_actual_gain_micr = -1;
+    int acodec_actual_input_volume_db = -1;
     int last_record_error = 0;
     std::string last_record_error_text;
 };
@@ -234,7 +242,7 @@ void send_all(int fd, const void *data, size_t size)
 {
     const char *p = static_cast<const char *>(data);
     while (size > 0) {
-        ssize_t n = send(fd, p, size, 0);
+        ssize_t n = send(fd, p, size, MSG_NOSIGNAL);
         if (n <= 0) return;
         p += n;
         size -= static_cast<size_t>(n);
@@ -584,9 +592,26 @@ int configure_acodec_input()
         return -saved;
     }
 
-    td_u32 boost = 1;
-    td_u32 input_volume = 80;
-    td_u32 gain = 0x1f;
+    int boost_l_cfg = 1;
+    int boost_r_cfg = 1;
+    int gain_l_cfg = 31;
+    int gain_r_cfg = 31;
+    int input_volume_cfg = 80;
+    {
+        /*
+         * 录音启动路径使用网页里保存的 ACODEC 输入参数。
+         * 这里先复制到局部变量，避免 ioctl 慢操作期间长时间持有状态锁。
+         */
+        std::lock_guard<std::mutex> lock(g_state.mu);
+        boost_l_cfg = std::max(0, std::min(g_state.acodec_boost_l, 1));
+        boost_r_cfg = std::max(0, std::min(g_state.acodec_boost_r, 1));
+        gain_l_cfg = std::max(0, std::min(g_state.acodec_gain_micl, 31));
+        gain_r_cfg = std::max(0, std::min(g_state.acodec_gain_micr, 31));
+        input_volume_cfg = std::max(0, std::min(g_state.acodec_input_volume_db, 80));
+    }
+    td_u32 boost_l = static_cast<td_u32>(boost_l_cfg);
+    td_u32 boost_r = static_cast<td_u32>(boost_r_cfg);
+    td_u32 input_volume = static_cast<td_u32>(input_volume_cfg);
     td_u32 unmute = 0;
 
     /*
@@ -605,31 +630,48 @@ int configure_acodec_input()
     };
 
     int ret = 0;
-    if ((ret = call(OT_ACODEC_ENABLE_BOOSTL, &boost, "OT_ACODEC_ENABLE_BOOSTL")) != 0) { close(fd); return ret; }
-    if ((ret = call(OT_ACODEC_ENABLE_BOOSTR, &boost, "OT_ACODEC_ENABLE_BOOSTR")) != 0) { close(fd); return ret; }
+    if ((ret = call(OT_ACODEC_ENABLE_BOOSTL, &boost_l, "OT_ACODEC_ENABLE_BOOSTL")) != 0) { close(fd); return ret; }
+    if ((ret = call(OT_ACODEC_ENABLE_BOOSTR, &boost_r, "OT_ACODEC_ENABLE_BOOSTR")) != 0) { close(fd); return ret; }
 
     /*
      * 麦克风 PGA 增益沿用已验证 demo 的兼容写法：从最高请求值向下尝试。
      * 板端驱动会拒绝部分增益档位，固定写 0x1f 会返回 EPERM；降档后以
      * 驱动接受的实际值为准。
      */
-    auto set_gain_compat = [&](unsigned long req, const char *name) -> int {
+    auto set_gain_compat = [&](unsigned long req, td_u32 requested, int *actual, const char *name) -> int {
         int saved = 0;
-        for (td_u32 current = gain;; --current) {
-            if (ioctl(fd, req, &current) == 0) return 0;
+        for (td_u32 current = requested;; --current) {
+            if (ioctl(fd, req, &current) == 0) {
+                *actual = static_cast<int>(current);
+                return 0;
+            }
             saved = errno;
             if (current == 0U) break;
         }
         set_detail_error(std::string("ACODEC 输入配置失败：") + name +
-                         "，已从 31 降档到 0 均被驱动拒绝，errno=" +
+                         "，已从请求值 " + std::to_string(requested) + " 降档到 0 均被驱动拒绝，errno=" +
                          std::to_string(saved) + "，原因=" + std::strerror(saved));
         return -saved;
     };
-    if ((ret = set_gain_compat(OT_ACODEC_SET_GAIN_MICL, "OT_ACODEC_SET_GAIN_MICL")) != 0) { close(fd); return ret; }
-    if ((ret = set_gain_compat(OT_ACODEC_SET_GAIN_MICR, "OT_ACODEC_SET_GAIN_MICR")) != 0) { close(fd); return ret; }
+    int actual_gain_l = -1;
+    int actual_gain_r = -1;
+    if ((ret = set_gain_compat(OT_ACODEC_SET_GAIN_MICL, static_cast<td_u32>(gain_l_cfg), &actual_gain_l, "OT_ACODEC_SET_GAIN_MICL")) != 0) { close(fd); return ret; }
+    if ((ret = set_gain_compat(OT_ACODEC_SET_GAIN_MICR, static_cast<td_u32>(gain_r_cfg), &actual_gain_r, "OT_ACODEC_SET_GAIN_MICR")) != 0) { close(fd); return ret; }
     if ((ret = call(OT_ACODEC_SET_INPUT_VOLUME, &input_volume, "OT_ACODEC_SET_INPUT_VOLUME")) != 0) { close(fd); return ret; }
     if ((ret = call(OT_ACODEC_SET_MICL_MUTE, &unmute, "OT_ACODEC_SET_MICL_MUTE")) != 0) { close(fd); return ret; }
     if ((ret = call(OT_ACODEC_SET_MICR_MUTE, &unmute, "OT_ACODEC_SET_MICR_MUTE")) != 0) { close(fd); return ret; }
+
+    td_u32 readback = 0;
+    if (ioctl(fd, OT_ACODEC_GET_GAIN_MICL, &readback) == 0) actual_gain_l = static_cast<int>(readback);
+    if (ioctl(fd, OT_ACODEC_GET_GAIN_MICR, &readback) == 0) actual_gain_r = static_cast<int>(readback);
+    if (ioctl(fd, OT_ACODEC_GET_INPUT_VOLUME, &readback) == 0) input_volume_cfg = static_cast<int>(readback);
+    {
+        /* 保存硬件读回值，页面状态区可以显示真实生效结果。 */
+        std::lock_guard<std::mutex> lock(g_state.mu);
+        g_state.acodec_actual_gain_micl = actual_gain_l;
+        g_state.acodec_actual_gain_micr = actual_gain_r;
+        g_state.acodec_actual_input_volume_db = input_volume_cfg;
+    }
 
     close(fd);
     return 0;
@@ -1039,6 +1081,14 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
           << ",\"record_bytes\":" << g_state.record_bytes
           << ",\"play_frames\":" << g_state.play_frames
           << ",\"play_bytes\":" << g_state.play_bytes
+          << ",\"acodec_boost_l\":" << g_state.acodec_boost_l
+          << ",\"acodec_boost_r\":" << g_state.acodec_boost_r
+          << ",\"acodec_gain_micl\":" << g_state.acodec_gain_micl
+          << ",\"acodec_gain_micr\":" << g_state.acodec_gain_micr
+          << ",\"acodec_input_volume_db\":" << g_state.acodec_input_volume_db
+          << ",\"acodec_actual_gain_micl\":" << g_state.acodec_actual_gain_micl
+          << ",\"acodec_actual_gain_micr\":" << g_state.acodec_actual_gain_micr
+          << ",\"acodec_actual_input_volume_db\":" << g_state.acodec_actual_input_volume_db
           << ",\"last_record_error\":" << g_state.last_record_error
           << ",\"last_record_error_text\":\"" << json_escape(g_state.last_record_error_text) << "\""
           << ",\"sample_rate\":16000,\"bits\":16,\"frame_samples\":320}\n";
@@ -1531,6 +1581,42 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
         return ret == 0 ? ok_json("\"name\":\"" + json_escape(name) + "\",\"value\":" + std::to_string(value)) : err_json("acodec ioctl failed: " + name, ret);
     }
 
+    if (req.path == "/api/demo/mic/input_settings/set") {
+        /*
+         * 保存录音启动时使用的 ACODEC 输入硬件参数。
+         * 取值范围来自厂商头文件和 sample：
+         *   boost: 0 关闭 / 1 开启；
+         *   MIC 模拟增益: 0~31，驱动不接受高档位时启动录音会自动向下兼容；
+         *   总输入音量: 0~80 dB。
+         */
+        std::lock_guard<std::mutex> lock(g_state.mu);
+        g_state.acodec_boost_l = std::max(0, std::min(to_int(q, "boost_l", g_state.acodec_boost_l), 1));
+        g_state.acodec_boost_r = std::max(0, std::min(to_int(q, "boost_r", g_state.acodec_boost_r), 1));
+        g_state.acodec_gain_micl = std::max(0, std::min(to_int(q, "gain_micl", g_state.acodec_gain_micl), 31));
+        g_state.acodec_gain_micr = std::max(0, std::min(to_int(q, "gain_micr", g_state.acodec_gain_micr), 31));
+        g_state.acodec_input_volume_db = std::max(0, std::min(to_int(q, "input_volume_db", g_state.acodec_input_volume_db), 80));
+        std::ostringstream o;
+        o << "\"boost_l\":" << g_state.acodec_boost_l
+          << ",\"boost_r\":" << g_state.acodec_boost_r
+          << ",\"gain_micl\":" << g_state.acodec_gain_micl
+          << ",\"gain_micr\":" << g_state.acodec_gain_micr
+          << ",\"input_volume_db\":" << g_state.acodec_input_volume_db;
+        return ok_json(o.str());
+    }
+    if (req.path == "/api/demo/mic/input_settings/get") {
+        std::lock_guard<std::mutex> lock(g_state.mu);
+        std::ostringstream o;
+        o << "\"boost_l\":" << g_state.acodec_boost_l
+          << ",\"boost_r\":" << g_state.acodec_boost_r
+          << ",\"gain_micl\":" << g_state.acodec_gain_micl
+          << ",\"gain_micr\":" << g_state.acodec_gain_micr
+          << ",\"input_volume_db\":" << g_state.acodec_input_volume_db
+          << ",\"actual_gain_micl\":" << g_state.acodec_actual_gain_micl
+          << ",\"actual_gain_micr\":" << g_state.acodec_actual_gain_micr
+          << ",\"actual_input_volume_db\":" << g_state.acodec_actual_input_volume_db;
+        return ok_json(o.str());
+    }
+
     if (req.path == "/api/demo/mic/start") {
         stop_record_thread();
         std::string input = get_str(q, "input", "left");
@@ -1676,6 +1762,7 @@ int main(int argc, char **argv)
     }
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
+    std::signal(SIGPIPE, SIG_IGN);
 
     int s = socket(AF_INET, SOCK_STREAM, 0);
     int yes = 1;

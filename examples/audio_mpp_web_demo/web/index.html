@@ -257,9 +257,18 @@ audio{width:100%;margin-top:10px}
     <div class="grid">
       <div class="panel">
         <h2>麦克风测试</h2>
+        <label>左输入增强 Boost<select id="mic_boost_l"><option value="1">开启 1</option><option value="0">关闭 0</option></select></label>
+        <label>右输入增强 Boost<select id="mic_boost_r"><option value="1">开启 1</option><option value="0">关闭 0</option></select></label>
+        <label>左麦模拟增益 0~31<input id="mic_gain_l" value="31" min="0" max="31" type="number"></label>
+        <label>右麦模拟增益 0~31<input id="mic_gain_r" value="31" min="0" max="31" type="number"></label>
+        <label>总输入音量 0~80 dB<input id="mic_input_volume_db" value="80" min="0" max="80" type="number"></label>
         <div class="row">
-          <button class="primary" onclick="call('/api/demo/mic/start?input=left')">左麦开始</button>
-          <button class="primary" onclick="call('/api/demo/mic/start?input=right')">右麦开始</button>
+          <button onclick="saveMicInputSettings()">保存输入参数</button>
+          <button onclick="call('/api/demo/mic/input_settings/get')">读取输入参数</button>
+        </div>
+        <div class="row">
+          <button class="primary" onclick="startMic('left')">左麦开始</button>
+          <button class="primary" onclick="startMic('right')">右麦开始</button>
           <button class="danger" onclick="call('/api/demo/mic/stop')">停止录音</button>
           <button onclick="downloadWav('left')">下载左麦</button>
           <button onclick="downloadWav('right')">下载右麦</button>
@@ -312,8 +321,8 @@ const acodecs=[
   ['set_dac_de_emphasis','设置 DAC 去加重'],['set_adc_hp_filter','设置 ADC 高通滤波'],['set_i2s1_data_width','设置 I2S1 位宽'],
   ['dac_soft_mute','DAC 软静音'],['dac_soft_unmute','DAC 软取消静音'],['dac_soft_mute_rate','DAC 软静音速率'],['query_status','查询状态']
 ];
-const stateNames={audio_initialized:'音频已初始化',ai_enabled:'采集设备已启用',ai_chn_enabled:'采集通道已启用',ao_enabled:'播放设备已启用',ao_chn_enabled:'播放通道已启用',recording:'正在录音',playing:'正在播放',record_input:'录音输入',left_saved:'左麦已保存',right_saved:'右麦已保存',record_frames:'录音帧数',record_bytes:'录音字节数',play_frames:'播放帧数',play_bytes:'播放字节数',last_record_error:'最后录音错误码',last_record_error_text:'最后录音错误',sample_rate:'采样率',bits:'位宽',frame_samples:'每帧采样点'};
-const fieldNames={ok:'执行结果',error:'错误信息',ret:'返回码',errno:'系统错误码',strerror:'系统错误说明',input:'录音输入',name:'控制项',value:'参数值',clk_select:'时钟源',sample_rate:'采样率',bit_width:'位宽',work_mode:'工作模式',snd_mode:'声道模式',expand_flag:'扩展标志',frame_num:'缓存帧数',point_num_per_frame:'每帧采样点',chn_cnt:'通道数量',clk_share:'时钟共享',i2s_type:'I2S 类型',mode:'模式',raw_frame_enable:'原始帧输出',usr_frame_depth:'用户帧深度',track_mode:'声道映射',gain:'增益',fd:'文件描述符',chn_total_num:'通道总数',chn_free_num:'空闲通道数',chn_busy_num:'忙碌通道数',delay_ms:'延迟毫秒',volume_db:'输出音量 dB',source:'数据来源',enable:'开关',stream_phys_addr:'码流物理地址',stream_size:'码流大小',frame_num:'帧数',frame_size:'帧大小',left_byte:'剩余字节',open_mask:'算法开关掩码',work_sample_rate:'工作采样率'};
+const stateNames={audio_initialized:'音频已初始化',ai_enabled:'采集设备已启用',ai_chn_enabled:'采集通道已启用',ao_enabled:'播放设备已启用',ao_chn_enabled:'播放通道已启用',recording:'正在录音',playing:'正在播放',record_input:'录音输入',left_saved:'左麦已保存',right_saved:'右麦已保存',record_frames:'录音帧数',record_bytes:'录音字节数',play_frames:'播放帧数',play_bytes:'播放字节数',acodec_boost_l:'左输入增强请求值 0~1',acodec_boost_r:'右输入增强请求值 0~1',acodec_gain_micl:'左麦模拟增益请求值 0~31',acodec_gain_micr:'右麦模拟增益请求值 0~31',acodec_input_volume_db:'总输入音量请求值 0~80 dB',acodec_actual_gain_micl:'左麦模拟增益实际值',acodec_actual_gain_micr:'右麦模拟增益实际值',acodec_actual_input_volume_db:'总输入音量实际值 dB',last_record_error:'最后录音错误码',last_record_error_text:'最后录音错误',sample_rate:'采样率',bits:'位宽',frame_samples:'每帧采样点'};
+const fieldNames={ok:'执行结果',error:'错误信息',ret:'返回码',errno:'系统错误码',strerror:'系统错误说明',input:'录音输入',name:'控制项',value:'参数值',clk_select:'时钟源',sample_rate:'采样率',bit_width:'位宽',work_mode:'工作模式',snd_mode:'声道模式',expand_flag:'扩展标志',frame_num:'缓存帧数',point_num_per_frame:'每帧采样点',chn_cnt:'通道数量',clk_share:'时钟共享',i2s_type:'I2S 类型',mode:'模式',raw_frame_enable:'原始帧输出',usr_frame_depth:'用户帧深度',track_mode:'声道映射',gain:'增益',fd:'文件描述符',boost_l:'左输入增强 0~1',boost_r:'右输入增强 0~1',gain_micl:'左麦模拟增益 0~31',gain_micr:'右麦模拟增益 0~31',input_volume_db:'总输入音量 0~80 dB',actual_gain_micl:'左麦模拟增益实际值',actual_gain_micr:'右麦模拟增益实际值',actual_input_volume_db:'总输入音量实际值 dB',chn_total_num:'通道总数',chn_free_num:'空闲通道数',chn_busy_num:'忙碌通道数',delay_ms:'延迟毫秒',volume_db:'输出音量 dB',source:'数据来源',enable:'开关',stream_phys_addr:'码流物理地址',stream_size:'码流大小',frame_num:'帧数',frame_size:'帧大小',left_byte:'剩余字节',open_mask:'算法开关掩码',work_sample_rate:'工作采样率'};
 const valueNames={true:'是',false:'否',left:'左麦',right:'右麦',stereo:'双声道',cached:'缓存值'};
 
 // 简短 DOM 工具函数，让 HTML 控件里的事件处理表达式保持可读。
@@ -362,6 +371,12 @@ function postAio(url,prefix){let ids=['sample_rate','bit_width','work_mode','snd
 
 // 把页面上的 VQE 公共字段提交到选中的 VQE 接口。
 function postVqe(url){postForm(url,['ai_dev','ai_chn','ao_dev','ao_chn','open_mask','work_sample_rate','frame_sample','work_state','in_chn_num','out_chn_num','hpf_freq'])}
+
+// 保存麦克风输入硬件参数；这些参数会在下一次开始录音时写入 ACODEC。
+function saveMicInputSettings(){return postForm('/api/demo/mic/input_settings/set',['mic_boost_l:boost_l','mic_boost_r:boost_r','mic_gain_l:gain_micl','mic_gain_r:gain_micr','mic_input_volume_db:input_volume_db'])}
+
+// 开始录音前先提交页面里的 ACODEC 输入参数，保证网页显示值就是本次录音使用值。
+async function startMic(input){await saveMicInputSettings();return call('/api/demo/mic/start?input='+input)}
 
 // 刷新 demo 进程状态；硬件读回仍然通过各模块自己的 get_* 按钮完成。
 async function refreshState(log=true){let r=await fetch('/api/state');let j=await r.json();$('state-box').innerHTML=Object.entries(j).filter(x=>x[0]!='ok').map(x=>`<div class="kv"><b>${stateNames[x[0]]||x[0]}</b>${valueNames[String(x[1])]||x[1]}</div>`).join('');if(log)showResult('GET','/api/state',r.status,JSON.stringify(j))}
