@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(camera_web_demo camera_web_demo/camera_web_demo.cpp)
 add_executable(wifi_cli_demo wifi_cli_demo/wifi_cli_demo.cpp)
 add_executable(mic_web_demo mic_web_demo/mic_web_demo.cpp)
+add_executable(audio_mpp_web_demo audio_mpp_web_demo/audio_mpp_web_demo.cpp)
 add_executable(key_cli_demo key_cli_demo/key_cli_demo.cpp)
 add_executable(bluetooth_cli_demo bluetooth_cli_demo/bluetooth_cli_demo.cpp)
 add_executable(bluetooth_web_demo bluetooth_web_demo/bluetooth_web_demo.cpp)
@@ -29,6 +30,9 @@ target_include_directories(wifi_cli_demo PRIVATE
 )
 target_include_directories(mic_web_demo PRIVATE
     "${EHAL_SDK_ROOT}/include"
+)
+target_include_directories(audio_mpp_web_demo PRIVATE
+    "${EHAL_SDK_ROOT}/include/chip/hi3516cv610"
 )
 target_include_directories(key_cli_demo PRIVATE
     "${EHAL_SDK_ROOT}/include"
@@ -58,6 +62,9 @@ target_link_directories(wifi_cli_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
 )
 target_link_directories(mic_web_demo PRIVATE
+    "${EHAL_SDK_LIB_DIR}"
+)
+target_link_directories(audio_mpp_web_demo PRIVATE
     "${EHAL_SDK_LIB_DIR}"
 )
 target_link_directories(key_cli_demo PRIVATE
@@ -162,6 +169,37 @@ target_link_libraries(mic_web_demo PRIVATE
     dl
     m
 )
+target_link_libraries(audio_mpp_web_demo PRIVATE
+    -Wl,-rpath-link=${EHAL_SDK_LIB_DIR}
+    ss_mpi
+    ss_mpi_sysbind
+    ss_mpi_sysmem
+    ss_mpi_audio
+    ss_mpi_audio_adp
+    voice_engine
+    upvqe
+    dnvqe
+    opus
+    vqe_res
+    vqe_record
+    vqe_hpf
+    vqe_anr
+    vqe_aec
+    vqe_agc
+    vqe_eq
+    vqe_talkv2
+    aac_dec
+    aac_enc
+    aac_comm
+    aac_sbr_dec
+    aac_sbr_enc
+    mp3_enc
+    mp3_lame
+    mp3_dec
+    pthread
+    dl
+    m
+)
 target_link_libraries(key_cli_demo PRIVATE
     ehal_key
     pthread
@@ -182,8 +220,11 @@ target_link_libraries(battery_adc_demo PRIVATE)
 target_link_options(mic_web_demo PRIVATE
     -Wl,--allow-shlib-undefined
 )
+target_link_options(audio_mpp_web_demo PRIVATE
+    -Wl,--allow-shlib-undefined
+)
 
-install(TARGETS camera_web_demo wifi_cli_demo mic_web_demo key_cli_demo bluetooth_cli_demo bluetooth_web_demo location_cli_demo mic_gain_demo battery_adc_demo
+install(TARGETS camera_web_demo wifi_cli_demo mic_web_demo audio_mpp_web_demo key_cli_demo bluetooth_cli_demo bluetooth_web_demo location_cli_demo mic_gain_demo battery_adc_demo
     RUNTIME DESTINATION bin
 )
 
@@ -201,6 +242,20 @@ install(DIRECTORY mic_web_demo/web/
         PATTERN "*.html"
         PATTERN "*.css"
         PATTERN "*.js"
+)
+
+install(DIRECTORY audio_mpp_web_demo/web/
+    DESTINATION web
+    FILES_MATCHING
+        PATTERN "*.html"
+        PATTERN "*.css"
+        PATTERN "*.js"
+)
+
+install(DIRECTORY audio_mpp_web_demo/audio/
+    DESTINATION audio
+    FILES_MATCHING
+        PATTERN "*.wav"
 )
 
 install(DIRECTORY mic_web_demo/configs/

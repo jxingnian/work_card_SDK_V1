@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Audio MPP Web Demo</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;background:#f6f7f9;color:#172033}
+header{padding:18px 24px;background:#fff;border-bottom:1px solid #dfe3ea;position:sticky;top:0;z-index:2}
+h1{font-size:22px;margin:0 0 12px}
+nav{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;border:1px solid #c8d0dc;background:#fff;color:#172033;border-radius:6px;padding:8px 12px;cursor:pointer}
+button.primary{background:#1764d8;color:#fff;border-color:#1764d8}
+button.danger{background:#c62828;color:#fff;border-color:#c62828}
+main{padding:20px;max-width:1280px;margin:auto}
+section{display:none}
+section.active{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:#fff;border:1px solid #dfe3ea;border-radius:8px;padding:16px}
+h2{font-size:18px;margin:0 0 14px}
+h3{font-size:15px;margin:0 0 12px}
+label{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:center;margin:8px 0}
+input,select{font:inherit;border:1px solid #c8d0dc;border-radius:6px;padding:7px 8px;min-width:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+pre{white-space:pre-wrap;word-break:break-word;background:#101828;color:#d8e2f0;border-radius:8px;padding:12px;min-height:120px;max-height:360px;overflow:auto}
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.kv{background:#eef2f7;border-radius:6px;padding:8px}
+.kv b{display:block;font-size:12px;color:#526173}
+audio{width:100%;margin-top:10px}
+</style>
+<header>
+  <h1>Audio MPP Web Demo</h1>
+  <nav id="tabs"></nav>
+</header>
+<main>
+  <!--
+    基础状态页：对应 ss_mpi_audio_init/exit 和 audio module parameter。
+    这里显示的是 demo 进程状态；各模块页的 get_* 按钮读取厂商接口真实回读值。
+  -->
+  <section id="state" class="active">
+    <div class="grid">
+      <div class="panel">
+        <h2>基础状态</h2>
+        <div id="state-box" class="status"></div>
+        <div class="row">
+          <button class="primary" onclick="call('/api/audio/init')">初始化音频</button>
+          <button class="danger" onclick="call('/api/audio/exit')">退出音频</button>
+          <button onclick="refreshState()">刷新状态</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>模块参数</h2>
+        <label>clk_select<select id="clk_select"><option value="0">BASE</option><option value="1">SPARE</option></select></label>
+        <div class="row">
+          <button onclick="postForm('/api/audio/set_mod_param',['clk_select'])">设置</button>
+          <button onclick="call('/api/audio/get_mod_param')">读取</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!--
+    AI 页：把 ss_mpi_ai_* 采集设备、采集通道、track mode、resample、fd 查询暴露给网页。
+    表单字段名尽量保持和 vendor ot_aio_attr / ot_ai_chn_* 结构字段一致。
+  -->
+  <section id="ai">
+    <div class="grid">
+      <div class="panel">
+        <h2>AI 公共参数</h2>
+        <div id="ai-aio"></div>
+        <div class="row">
+          <button class="primary" onclick="postAio('/api/ai/set_pub_attr','ai')">set_pub_attr</button>
+          <button onclick="call('/api/ai/get_pub_attr?ai_dev='+v('ai_dev'))">get_pub_attr</button>
+          <button onclick="call('/api/ai/clr_pub_attr?ai_dev='+v('ai_dev'))">clr_pub_attr</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>AI 设备/通道</h2>
+        <label>ai_dev<input id="ai_dev" value="0"></label>
+        <label>ai_chn<input id="ai_chn" value="0"></label>
+        <label>mode<select id="ai_mode"><option value="0">NORMAL</option><option value="1">FAST</option></select></label>
+        <label>raw_frame_enable<select id="raw_frame_enable"><option value="0">false</option><option value="1">true</option></select></label>
+        <label>usr_frame_depth<input id="usr_frame_depth" value="4"></label>
+        <label>track_mode<select id="ai_track_mode"></select></label>
+        <label>dmic_gain<input id="dmic_gain" value="0"></label>
+        <div class="row">
+          <button onclick="call('/api/ai/enable?ai_dev='+v('ai_dev'))">enable</button>
+          <button onclick="call('/api/ai/disable?ai_dev='+v('ai_dev'))">disable</button>
+          <button onclick="call('/api/ai/enable_chn?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">enable_chn</button>
+          <button onclick="call('/api/ai/disable_chn?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">disable_chn</button>
+        </div>
+        <div class="row">
+          <button onclick="postForm('/api/ai/set_chn_attr',['ai_dev','ai_chn','ai_mode:mode','raw_frame_enable'])">set_chn_attr</button>
+          <button onclick="call('/api/ai/get_chn_attr?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get_chn_attr</button>
+          <button onclick="postForm('/api/ai/set_chn_param',['ai_dev','ai_chn','usr_frame_depth'])">set_chn_param</button>
+          <button onclick="call('/api/ai/get_chn_param?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get_chn_param</button>
+        </div>
+        <div class="row">
+          <button onclick="postForm('/api/ai/set_track_mode',['ai_dev','ai_track_mode:track_mode'])">set_track_mode</button>
+          <button onclick="call('/api/ai/get_track_mode?ai_dev='+v('ai_dev'))">get_track_mode</button>
+          <button onclick="postForm('/api/ai/set_dmic_gain',['ai_dev','dmic_gain:gain'])">set_dmic_gain</button>
+          <button onclick="call('/api/ai/get_dmic_gain?ai_dev='+v('ai_dev'))">get_dmic_gain</button>
+          <button onclick="call('/api/ai/fd?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get_fd</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!--
+    AO 页：把 ss_mpi_ao_* 播放设备、播放通道、音量、静音、track mode、缓存状态暴露给网页。
+  -->
+  <section id="ao">
+    <div class="grid">
+      <div class="panel">
+        <h2>AO 公共参数</h2>
+        <div id="ao-aio"></div>
+        <div class="row">
+          <button class="primary" onclick="postAio('/api/ao/set_pub_attr','ao')">set_pub_attr</button>
+          <button onclick="call('/api/ao/get_pub_attr?ao_dev='+v('ao_dev'))">get_pub_attr</button>
+          <button onclick="call('/api/ao/clr_pub_attr?ao_dev='+v('ao_dev'))">clr_pub_attr</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>AO 设备/通道/音量</h2>
+        <label>ao_dev<input id="ao_dev" value="0"></label>
+        <label>ao_chn<input id="ao_chn" value="0"></label>
+        <label>volume_db<input id="volume_db" value="0"></label>
+        <label>mute<select id="ao_mute"><option value="0">false</option><option value="1">true</option></select></label>
+        <label>track_mode<select id="ao_track_mode"></select></label>
+        <div class="row">
+          <button onclick="call('/api/ao/enable?ao_dev='+v('ao_dev'))">enable</button>
+          <button onclick="call('/api/ao/disable?ao_dev='+v('ao_dev'))">disable</button>
+          <button onclick="call('/api/ao/enable_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">enable_chn</button>
+          <button onclick="call('/api/ao/disable_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">disable_chn</button>
+          <button onclick="call('/api/ao/pause_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">pause</button>
+          <button onclick="call('/api/ao/resume_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">resume</button>
+        </div>
+        <div class="row">
+          <button onclick="postForm('/api/ao/set_volume',['ao_dev','volume_db'])">set_volume</button>
+          <button onclick="call('/api/ao/get_volume?ao_dev='+v('ao_dev'))">get_volume</button>
+          <button onclick="postForm('/api/ao/set_mute',['ao_dev','ao_mute:enable'])">set_mute</button>
+          <button onclick="call('/api/ao/get_mute?ao_dev='+v('ao_dev'))">get_mute</button>
+          <button onclick="postForm('/api/ao/set_track_mode',['ao_dev','ao_track_mode:track_mode'])">set_track_mode</button>
+          <button onclick="call('/api/ao/get_track_mode?ao_dev='+v('ao_dev'))">get_track_mode</button>
+        </div>
+        <div class="row">
+          <button onclick="call('/api/ao/query_chn_status?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">query_status</button>
+          <button onclick="call('/api/ao/get_chn_delay?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">get_delay</button>
+          <button onclick="call('/api/ao/clear_buf?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">clear_buf</button>
+          <button onclick="call('/api/ao/fd?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">get_fd</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!--
+    AENC/ADEC 页：用于创建/销毁编码解码通道，以及缓存、静音、状态查询。
+    当前 demo 的录音/播放主路径使用裸 PCM；这些接口用于独立验证厂商编码器/解码器。
+  -->
+  <section id="codec">
+    <div class="grid">
+      <div class="panel">
+        <h2>AENC</h2>
+        <label>aenc_chn<input id="aenc_chn" value="0"></label>
+        <label>type<select id="aenc_type"></select></label>
+        <label>point_num_per_frame<input id="aenc_points" value="320"></label>
+        <label>buf_size<input id="aenc_buf" value="10"></label>
+        <label>g726bps<input id="g726bps" value="2"></label>
+        <label>adpcm_type<input id="adpcm_type" value="0"></label>
+        <label>mute<select id="aenc_mute"><option value="0">false</option><option value="1">true</option></select></label>
+        <div class="row">
+          <button onclick="postForm('/api/aenc/create',['aenc_chn','aenc_type:type','aenc_points:point_num_per_frame','aenc_buf:buf_size','g726bps','adpcm_type'])">create</button>
+          <button onclick="call('/api/aenc/destroy?aenc_chn='+v('aenc_chn'))">destroy</button>
+          <button onclick="postForm('/api/aenc/set_mute',['aenc_chn','aenc_mute:enable'])">set_mute</button>
+          <button onclick="call('/api/aenc/get_mute?aenc_chn='+v('aenc_chn'))">get_mute</button>
+          <button onclick="call('/api/aenc/clear_buf?aenc_chn='+v('aenc_chn'))">clear_buf</button>
+          <button onclick="call('/api/aenc/fd?aenc_chn='+v('aenc_chn'))">fd</button>
+          <button onclick="call('/api/aenc/buf_info?aenc_chn='+v('aenc_chn'))">buf_info</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>ADEC</h2>
+        <label>adec_chn<input id="adec_chn" value="0"></label>
+        <label>type<select id="adec_type"></select></label>
+        <label>buf_size<input id="adec_buf" value="10"></label>
+        <label>mode<select id="adec_mode"><option value="0">PACK</option><option value="1">STREAM</option></select></label>
+        <label>instant_eos<select id="instant"><option value="0">false</option><option value="1">true</option></select></label>
+        <div class="row">
+          <button onclick="postForm('/api/adec/create',['adec_chn','adec_type:type','adec_buf:buf_size','adec_mode:mode','g726bps','adpcm_type'])">create</button>
+          <button onclick="call('/api/adec/destroy?adec_chn='+v('adec_chn'))">destroy</button>
+          <button onclick="call('/api/adec/clear_buf?adec_chn='+v('adec_chn'))">clear_buf</button>
+          <button onclick="postForm('/api/adec/eos',['adec_chn','instant'])">eos</button>
+          <button onclick="call('/api/adec/status?adec_chn='+v('adec_chn'))">status</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!--
+    VQE 页：提供 AI record/talk/talk_v2 和 AO VQE 的核心公共参数。
+    高级算法子结构在后端使用安全默认值，页面先暴露 open_mask、采样率、帧长等关键开关。
+  -->
+  <section id="vqe">
+    <div class="grid">
+      <div class="panel">
+        <h2>VQE 参数</h2>
+        <label>open_mask<input id="open_mask" value="0"></label>
+        <label>work_sample_rate<input id="work_sample_rate" value="16000"></label>
+        <label>frame_sample<input id="frame_sample" value="320"></label>
+        <label>work_state<select id="work_state"><option value="0">COMMON</option><option value="1">MUSIC</option><option value="2">NOISY</option></select></label>
+        <label>in_chn_num<input id="in_chn_num" value="1"></label>
+        <label>out_chn_num<input id="out_chn_num" value="1"></label>
+        <label>hpf_freq<select id="hpf_freq"><option value="80">80</option><option value="120">120</option><option value="150">150</option></select></label>
+      </div>
+      <div class="panel">
+        <h2>AI/AO VQE</h2>
+        <div class="row">
+          <button onclick="postVqe('/api/vqe/ai_record/set')">set AI record</button>
+          <button onclick="call('/api/vqe/ai_record/get?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get AI record</button>
+          <button onclick="postVqe('/api/vqe/ai_talk/set')">set AI talk</button>
+          <button onclick="call('/api/vqe/ai_talk/get?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get AI talk</button>
+          <button onclick="postVqe('/api/vqe/ai_talk_v2/set')">set AI talk v2</button>
+          <button onclick="call('/api/vqe/ai_talk_v2/get?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get AI talk v2</button>
+        </div>
+        <div class="row">
+          <button onclick="call('/api/vqe/ai/enable?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">enable AI VQE</button>
+          <button onclick="call('/api/vqe/ai/disable?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">disable AI VQE</button>
+          <button onclick="postVqe('/api/vqe/ao/set')">set AO VQE</button>
+          <button onclick="call('/api/vqe/ao/get?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">get AO VQE</button>
+          <button onclick="call('/api/vqe/ao/enable?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">enable AO VQE</button>
+          <button onclick="call('/api/vqe/ao/disable?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">disable AO VQE</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!--
+    ACODEC 页：直接调用 /dev/acodec ioctl。name 决定具体 ioctl，value/mute 是参数。
+    每次调用都会显示 ioctl 返回码和 errno，方便板端硬件配置验证。
+  -->
+  <section id="acodec">
+    <div class="panel">
+      <h2>ACODEC ioctl</h2>
+      <label>ioctl<select id="acodec_name"></select></label>
+      <label>value<input id="acodec_value" value="0"></label>
+      <label>mute<input id="acodec_mute" value="0"></label>
+      <div class="row">
+        <button class="primary" onclick="postForm('/api/acodec/ioctl',['acodec_name:name','acodec_value:value','acodec_mute:mute'])">执行 ioctl</button>
+      </div>
+    </div>
+  </section>
+
+  <!--
+    录放 Demo 页：使用固定 16 kHz / 16-bit / 320 samples 的 AI/AO 路径做实际验证。
+    左右麦通过 ss_mpi_ai_set_track_mode 选择，下载时封装成 mono 或 stereo WAV。
+  -->
+  <section id="demo">
+    <div class="grid">
+      <div class="panel">
+        <h2>麦克风 Demo</h2>
+        <div class="row">
+          <button class="primary" onclick="call('/api/demo/mic/start?input=left')">左麦开始</button>
+          <button class="primary" onclick="call('/api/demo/mic/start?input=right')">右麦开始</button>
+          <button class="danger" onclick="call('/api/demo/mic/stop')">停止录音</button>
+          <button onclick="downloadWav('left')">下载左麦</button>
+          <button onclick="downloadWav('right')">下载右麦</button>
+          <button onclick="downloadWav('stereo')">下载双声道</button>
+        </div>
+        <audio id="player" controls></audio>
+      </div>
+      <div class="panel">
+        <h2>扬声器 Demo</h2>
+        <label>freq<input id="tone_freq" value="1000"></label>
+        <label>duration ms<input id="tone_duration" value="3000"></label>
+        <label>volume %<input id="tone_volume" value="80"></label>
+        <label>wav path<input id="wav_path" value="audio/speaker_voice_16k.wav"></label>
+        <div class="row">
+          <button class="primary" onclick="postForm('/api/demo/speaker/tone',['tone_freq:freq','tone_duration:duration','tone_volume:volume'])">播放频率</button>
+          <button onclick="postForm('/api/demo/speaker/file',['wav_path:path'])">播放文件</button>
+          <button class="danger" onclick="call('/api/demo/speaker/stop')">停止播放</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="panel" style="margin-top:16px">
+    <h2>返回结果</h2>
+    <pre id="log"></pre>
+  </div>
+</main>
+<script>
+// 页签定义。每个页签对应一个厂商接口族或一个实际录放测试流程。
+const tabDefs=[['state','基础状态'],['ai','AI 麦克风'],['ao','AO 扬声器'],['codec','AENC/ADEC'],['vqe','VQE'],['acodec','ACODEC'],['demo','录放 Demo']];
+
+// 厂商 ot_audio_track_mode 枚举值，AI 和 AO 的 set_track_mode 都使用这组值。
+const tracks=[['0','NORMAL'],['1','BOTH_LEFT'],['2','BOTH_RIGHT'],['3','EXCHANGE'],['4','MIX'],['5','LEFT_MUTE'],['6','RIGHT_MUTE'],['7','BOTH_MUTE']];
+
+// 厂商 ot_payload_type 音频负载类型，用于创建 AENC/ADEC 通道。
+const payloads=[['23','LPCM'],['19','G711A'],['20','G711U'],['21','G726'],['49','ADPCM']];
+
+// /api/acodec/ioctl 接受的 ACODEC 操作名；后端会把名称映射到对应 ioctl 宏。
+const acodecs=['soft_reset','set_i2s1_fs','set_mixer_mic','set_input_volume','set_output_volume','get_input_volume','get_output_volume','enable_boostl','enable_boostr','set_gain_micl','set_gain_micr','get_gain_micl','get_gain_micr','set_dacl_volume','set_dacr_volume','set_adcl_volume','set_adcr_volume','get_dacl_volume','get_dacr_volume','get_adcl_volume','get_adcr_volume','set_micl_mute','set_micr_mute','set_dacl_mute','set_dacr_mute','set_pd_dacl','set_pd_dacr','set_pd_adcl','set_pd_adcr','set_pd_lineinl','set_pd_lineinr','select_dac_clk','select_adc_clk','select_ana_mclk','dacl_select_track','dacr_select_track','adcl_select_track','adcr_select_track','set_dac_de_emphasis','set_adc_hp_filter','set_i2s1_data_width','dac_soft_mute','dac_soft_unmute','dac_soft_mute_rate','query_status'];
+
+// 简短 DOM 工具函数，让 HTML 控件里的事件处理表达式保持可读。
+function $(id){return document.getElementById(id)}
+function v(id){return encodeURIComponent($(id).value)}
+function opts(id,arr){$(id).innerHTML=arr.map(x=>`<option value="${x[0]}">${x[1]}</option>`).join('')}
+
+// 渲染 AI/AO 共用的 ot_aio_attr 参数表单。
+function aioFields(prefix){return `
+<label>${prefix}_sample_rate<select id="${prefix}_sample_rate"><option>16000</option><option>8000</option><option>12000</option><option>24000</option><option>32000</option><option>44100</option><option>48000</option></select></label>
+<label>${prefix}_bit_width<select id="${prefix}_bit_width"><option value="16">16</option><option value="8">8</option><option value="24">24</option></select></label>
+<label>${prefix}_work_mode<input id="${prefix}_work_mode" value="0"></label>
+<label>${prefix}_snd_mode<select id="${prefix}_snd_mode"><option value="0">MONO</option><option value="1">STEREO</option></select></label>
+<label>${prefix}_expand_flag<input id="${prefix}_expand_flag" value="0"></label>
+<label>${prefix}_frame_num<input id="${prefix}_frame_num" value="10"></label>
+<label>${prefix}_point_num_per_frame<input id="${prefix}_point_num_per_frame" value="320"></label>
+<label>${prefix}_chn_cnt<input id="${prefix}_chn_cnt" value="1"></label>
+<label>${prefix}_clk_share<input id="${prefix}_clk_share" value="0"></label>
+<label>${prefix}_i2s_type<input id="${prefix}_i2s_type" value="0"></label>`}
+function init(){
+  // 页面加载时填充动态下拉框，然后读取一次后端状态。
+  $('tabs').innerHTML=tabDefs.map((t,i)=>`<button class="${i?'':'primary'}" onclick="tab('${t[0]}',this)">${t[1]}</button>`).join('');
+  $('ai-aio').innerHTML=aioFields('ai'); $('ao-aio').innerHTML=aioFields('ao');
+  opts('ai_track_mode',tracks); opts('ao_track_mode',tracks); opts('aenc_type',payloads); opts('adec_type',payloads);
+  $('acodec_name').innerHTML=acodecs.map(x=>`<option>${x}</option>`).join('');
+  refreshState();
+}
+
+// 切换当前页签，并同步高亮页签按钮。
+function tab(id,btn){document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));$(id).classList.add('active');document.querySelectorAll('nav button').forEach(b=>b.classList.remove('primary'));btn.classList.add('primary')}
+
+// 调用 API，并显示原始 HTTP 状态和响应体，便于查看厂商接口返回细节。
+async function call(url,opt={}){let r=await fetch(url,opt);let text=await r.text();$('log').textContent=`${opt.method||'GET'} ${url}\nHTTP ${r.status}\n${text}`;refreshState(false);return {r,text}}
+
+// 根据输入框 ID 生成 application/x-www-form-urlencoded 请求体。
+function body(ids){let p=new URLSearchParams();ids.forEach(x=>{let [id,name]=x.split(':');p.set(name||id,$(id).value)});return p}
+
+// 提交表单到接口；大部分 set_* 按钮都使用这个函数。
+function postForm(url,ids){return call(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body(ids)})}
+
+// 提交 AI 或 AO 共用的 AIO 属性结构。
+function postAio(url,prefix){let ids=['sample_rate','bit_width','work_mode','snd_mode','expand_flag','frame_num','point_num_per_frame','chn_cnt','clk_share','i2s_type'].map(x=>`${prefix}_${x}:${x}`);ids.unshift(prefix+'_dev');postForm(url,ids)}
+
+// 把页面上的 VQE 公共字段提交到选中的 VQE 接口。
+function postVqe(url){postForm(url,['ai_dev','ai_chn','ao_dev','ao_chn','open_mask','work_sample_rate','frame_sample','work_state','in_chn_num','out_chn_num','hpf_freq'])}
+
+// 刷新 demo 进程状态；硬件读回仍然通过各模块自己的 get_* 按钮完成。
+async function refreshState(log=true){let r=await fetch('/api/state');let j=await r.json();$('state-box').innerHTML=Object.entries(j).filter(x=>x[0]!='ok').map(x=>`<div class="kv"><b>${x[0]}</b>${x[1]}</div>`).join('');if(log)$('log').textContent=JSON.stringify(j,null,2)}
+
+// 打开后端生成的 WAV 下载地址，同时把它加载到页面 audio 控件里。
+function downloadWav(input){let url='/api/demo/mic/download?input='+input; $('player').src=url; window.open(url,'_blank')}
+init();
+</script>
+</html>

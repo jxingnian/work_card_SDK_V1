@@ -189,7 +189,6 @@ public:
                 (void)ehal_camera_stop(camera_);
                 running_ = false;
             } else {
-                // 确保输出音量正确设置
                 int volume_result = ehal_audio_set_output_volume(audio_, 80);
                 std::cout << "set audio output volume to 80, result=" << volume_result << '\n';
                 start_rtsp_worker();
@@ -1065,7 +1064,7 @@ private:
         std::ostringstream response;
         response << "HTTP/1.1 200 OK\r\n"
                  << "Content-Type: application/octet-stream\r\n"
-                 << "Content-Disposition: attachment; filename=\"capture.g711a\"\r\n"
+                  << "Content-Disposition: attachment; filename=\"capture.g711a\"\r\n"
                  << "Content-Length: " << data.size() << "\r\n"
                  << "Connection: close\r\n\r\n";
         std::string header = response.str();
