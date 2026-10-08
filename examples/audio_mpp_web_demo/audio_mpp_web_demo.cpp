@@ -607,11 +607,11 @@ int configure_acodec_input()
         boost_r_cfg = std::max(0, std::min(g_state.acodec_boost_r, 1));
         gain_l_cfg = std::max(0, std::min(g_state.acodec_gain_micl, 31));
         gain_r_cfg = std::max(0, std::min(g_state.acodec_gain_micr, 31));
-        input_volume_cfg = std::max(0, std::min(g_state.acodec_input_volume_db, 80));
+        input_volume_cfg = std::max(-78, std::min(g_state.acodec_input_volume_db, 80));
     }
     td_u32 boost_l = static_cast<td_u32>(boost_l_cfg);
     td_u32 boost_r = static_cast<td_u32>(boost_r_cfg);
-    td_u32 input_volume = static_cast<td_u32>(input_volume_cfg);
+    td_s32 input_volume = static_cast<td_s32>(input_volume_cfg);
     td_u32 unmute = 0;
 
     /*
@@ -1587,14 +1587,14 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
          * 取值范围来自厂商头文件和 sample：
          *   boost: 0 关闭 / 1 开启；
          *   MIC 模拟增益: 0~31，驱动不接受高档位时启动录音会自动向下兼容；
-         *   总输入音量: 0~80 dB。
+         *   总输入音量: -78~80 dB，数值越大录音越响。
          */
         std::lock_guard<std::mutex> lock(g_state.mu);
         g_state.acodec_boost_l = std::max(0, std::min(to_int(q, "boost_l", g_state.acodec_boost_l), 1));
         g_state.acodec_boost_r = std::max(0, std::min(to_int(q, "boost_r", g_state.acodec_boost_r), 1));
         g_state.acodec_gain_micl = std::max(0, std::min(to_int(q, "gain_micl", g_state.acodec_gain_micl), 31));
         g_state.acodec_gain_micr = std::max(0, std::min(to_int(q, "gain_micr", g_state.acodec_gain_micr), 31));
-        g_state.acodec_input_volume_db = std::max(0, std::min(to_int(q, "input_volume_db", g_state.acodec_input_volume_db), 80));
+        g_state.acodec_input_volume_db = std::max(-78, std::min(to_int(q, "input_volume_db", g_state.acodec_input_volume_db), 80));
         std::ostringstream o;
         o << "\"boost_l\":" << g_state.acodec_boost_l
           << ",\"boost_r\":" << g_state.acodec_boost_r

@@ -21,6 +21,7 @@ h3{font-size:15px;margin:0 0 12px}
 label{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:center;margin:8px 0}
 input,select{font:inherit;border:1px solid #c8d0dc;border-radius:6px;padding:7px 8px;min-width:0}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.hint{font-size:12px;line-height:1.55;color:#5d6b7a;background:#f3f6fa;border:1px solid #dfe6ef;border-radius:6px;padding:8px 10px;margin:8px 0 12px}
 pre{white-space:pre-wrap;word-break:break-word;background:#101828;color:#d8e2f0;border-radius:8px;padding:12px;min-height:120px;max-height:360px;overflow:auto}
 .status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
 .kv{background:#eef2f7;border-radius:6px;padding:8px}
@@ -49,7 +50,7 @@ audio{width:100%;margin-top:10px}
       </div>
       <div class="panel">
         <h2>模块参数</h2>
-        <label>时钟源<select id="clk_select"><option value="0">基础时钟</option><option value="1">备用时钟</option></select></label>
+        <label>时钟源 0~1<select id="clk_select"><option value="0">0 基础时钟</option><option value="1">1 备用时钟</option></select></label>
         <div class="row">
           <button onclick="postForm('/api/audio/set_mod_param',['clk_select'])">设置</button>
           <button onclick="call('/api/audio/get_mod_param')">读取</button>
@@ -75,13 +76,13 @@ audio{width:100%;margin-top:10px}
       </div>
       <div class="panel">
         <h2>AI 设备/通道</h2>
-        <label>采集设备号<input id="ai_dev" value="0"></label>
-        <label>采集通道号<input id="ai_chn" value="0"></label>
-        <label>通道模式<select id="ai_mode"><option value="0">普通模式</option><option value="1">快速模式</option></select></label>
-        <label>原始帧输出<select id="raw_frame_enable"><option value="0">关闭</option><option value="1">开启</option></select></label>
-        <label>用户帧深度<input id="usr_frame_depth" value="4"></label>
+        <label>采集设备号 ≥0<input id="ai_dev" value="0" min="0" type="number"></label>
+        <label>采集通道号 ≥0<input id="ai_chn" value="0" min="0" type="number"></label>
+        <label>通道模式 0~1<select id="ai_mode"><option value="0">0 普通模式</option><option value="1">1 快速模式</option></select></label>
+        <label>原始帧输出 0~1<select id="raw_frame_enable"><option value="0">0 关闭</option><option value="1">1 开启</option></select></label>
+        <label>用户帧深度 2~30<input id="usr_frame_depth" value="4" min="2" max="30" type="number"></label>
         <label>声道映射<select id="ai_track_mode"></select></label>
-        <label>数字麦增益<input id="dmic_gain" value="0"></label>
+        <label>数字麦增益 dB<input id="dmic_gain" value="0" type="number"></label>
         <div class="row">
           <button onclick="call('/api/ai/enable?ai_dev='+v('ai_dev'))">启用设备</button>
           <button onclick="call('/api/ai/disable?ai_dev='+v('ai_dev'))">禁用设备</button>
@@ -121,10 +122,11 @@ audio{width:100%;margin-top:10px}
       </div>
       <div class="panel">
         <h2>AO 设备/通道/音量</h2>
-        <label>播放设备号<input id="ao_dev" value="0"></label>
-        <label>播放通道号<input id="ao_chn" value="0"></label>
-        <label>输出音量 dB<input id="volume_db" value="0"></label>
-        <label>静音<select id="ao_mute"><option value="0">关闭</option><option value="1">开启</option></select></label>
+        <div class="hint">AO 输出音量调用 ss_mpi_ao_set_volume，单位是 dB，不是百分比；厂商示例测试范围为 -15~6 dB，0 dB 为默认基准，6 dB 为示例测试最大增益。</div>
+        <label>播放设备号 ≥0<input id="ao_dev" value="0" min="0" type="number"></label>
+        <label>播放通道号 ≥0<input id="ao_chn" value="0" min="0" type="number"></label>
+        <label>输出音量 -15~6 dB<input id="volume_db" value="0" min="-15" max="6" type="number"></label>
+        <label>静音 0~1<select id="ao_mute"><option value="0">0 关闭</option><option value="1">1 开启</option></select></label>
         <label>声道映射<select id="ao_track_mode"></select></label>
         <div class="row">
           <button onclick="call('/api/ao/enable?ao_dev='+v('ao_dev'))">启用设备</button>
@@ -160,13 +162,14 @@ audio{width:100%;margin-top:10px}
     <div class="grid">
       <div class="panel">
         <h2>音频编码</h2>
-        <label>编码通道号<input id="aenc_chn" value="0"></label>
+        <label>编码通道号 ≥0<input id="aenc_chn" value="0" min="0" type="number"></label>
         <label>编码类型<select id="aenc_type"></select></label>
-        <label>每帧采样点<input id="aenc_points" value="320"></label>
-        <label>缓存帧数<input id="aenc_buf" value="10"></label>
-        <label>G726 码率档位<input id="g726bps" value="2"></label>
-        <label>ADPCM 类型<input id="adpcm_type" value="0"></label>
-        <label>编码静音<select id="aenc_mute"><option value="0">关闭</option><option value="1">开启</option></select></label>
+        <label>每帧采样点<input id="aenc_points" value="320" list="point_list" type="number"></label>
+        <label>缓存帧数 2~300<input id="aenc_buf" value="10" min="2" max="300" type="number"></label>
+        <label>G726 码率档位 0~7<input id="g726bps" value="2" min="0" max="7" type="number"></label>
+        <label>ADPCM 类型 0~2<input id="adpcm_type" value="0" min="0" max="2" type="number"></label>
+        <label>编码静音 0~1<select id="aenc_mute"><option value="0">0 关闭</option><option value="1">1 开启</option></select></label>
+        <div class="hint">每帧采样点可选 80/160/240/320/480/1024/2048；ADPCM IMA 类型需要 161/241/321/481。G726：0/1/2/3 为 16/24/32/40 kbps RTP，4/5/6/7 为 16/24/32/40 kbps MEDIA。</div>
         <div class="row">
           <button onclick="postForm('/api/aenc/create',['aenc_chn','aenc_type:type','aenc_points:point_num_per_frame','aenc_buf:buf_size','g726bps','adpcm_type'])">创建通道</button>
           <button onclick="call('/api/aenc/destroy?aenc_chn='+v('aenc_chn'))">销毁通道</button>
@@ -179,11 +182,11 @@ audio{width:100%;margin-top:10px}
       </div>
       <div class="panel">
         <h2>音频解码</h2>
-        <label>解码通道号<input id="adec_chn" value="0"></label>
+        <label>解码通道号 ≥0<input id="adec_chn" value="0" min="0" type="number"></label>
         <label>解码类型<select id="adec_type"></select></label>
-        <label>缓存帧数<input id="adec_buf" value="10"></label>
-        <label>解码模式<select id="adec_mode"><option value="0">整包模式</option><option value="1">流模式</option></select></label>
-        <label>立即结束<select id="instant"><option value="0">否</option><option value="1">是</option></select></label>
+        <label>缓存帧数 2~300<input id="adec_buf" value="10" min="2" max="300" type="number"></label>
+        <label>解码模式 0~1<select id="adec_mode"><option value="0">0 整包模式</option><option value="1">1 流模式</option></select></label>
+        <label>立即结束 0~1<select id="instant"><option value="0">0 否</option><option value="1">1 是</option></select></label>
         <div class="row">
           <button onclick="postForm('/api/adec/create',['adec_chn','adec_type:type','adec_buf:buf_size','adec_mode:mode','g726bps','adpcm_type'])">创建通道</button>
           <button onclick="call('/api/adec/destroy?adec_chn='+v('adec_chn'))">销毁通道</button>
@@ -203,13 +206,14 @@ audio{width:100%;margin-top:10px}
     <div class="grid">
       <div class="panel">
         <h2>音频算法参数</h2>
-        <label>算法开关掩码<input id="open_mask" value="0"></label>
-        <label>工作采样率<input id="work_sample_rate" value="16000"></label>
-        <label>算法帧长<input id="frame_sample" value="320"></label>
-        <label>工作场景<select id="work_state"><option value="0">普通环境</option><option value="1">音乐环境</option><option value="2">嘈杂环境</option></select></label>
-        <label>输入通道数<input id="in_chn_num" value="1"></label>
-        <label>输出通道数<input id="out_chn_num" value="1"></label>
+        <label>算法开关掩码<input id="open_mask" value="0" type="number"></label>
+        <label>工作采样率 Hz<input id="work_sample_rate" value="16000" list="sample_rate_list" type="number"></label>
+        <label>算法帧长 80~4096 点<input id="frame_sample" value="320" min="80" max="4096" type="number"></label>
+        <label>工作场景 0~2<select id="work_state"><option value="0">0 普通环境</option><option value="1">1 音乐环境</option><option value="2">2 嘈杂环境</option></select></label>
+        <label>输入通道数 1~2<input id="in_chn_num" value="1" min="1" max="2" type="number"></label>
+        <label>输出通道数 1~2<input id="out_chn_num" value="1" min="1" max="2" type="number"></label>
         <label>高通频率<select id="hpf_freq"><option value="80">80Hz</option><option value="120">120Hz</option><option value="150">150Hz</option></select></label>
+        <div class="hint">掩码 0 表示关闭算法；16 kHz 下 320 点等于 20 ms。AI Record 支持 16 kHz/48 kHz，AI Talk 支持 8 kHz/16 kHz，AO VQE 支持 8 kHz/16 kHz/48 kHz。</div>
       </div>
       <div class="panel">
         <h2>采集/播放算法</h2>
@@ -240,9 +244,10 @@ audio{width:100%;margin-top:10px}
   <section id="acodec">
     <div class="panel">
       <h2>模拟音频编解码器控制</h2>
+      <div class="hint">ACODEC 参数范围：I2S1 采样率 1~11 对应 8000/11025/12000/16000/22050/24000/32000/44100/48000/64000/96000 Hz；麦克风输入源 0/1/2 对应 IN0/IN1/差分输入；总输入/总输出音量按 dB 写入，厂商音频实现依据为 -78~80 dB；Boost 为 0/1；MIC 模拟增益为 0~31；ADC/DAC 音量寄存器为 0x00~0x7e，0x7f 表示静音；静音、上下电、软静音类参数为 0/1。</div>
       <label>控制项<select id="acodec_name"></select></label>
-      <label>参数值<input id="acodec_value" value="0"></label>
-      <label>静音值<input id="acodec_mute" value="0"></label>
+      <label>参数值 见上方范围<input id="acodec_value" value="0" type="number"></label>
+      <label>静音值 0~1<input id="acodec_mute" value="0" min="0" max="1" type="number"></label>
       <div class="row">
         <button class="primary" onclick="postForm('/api/acodec/ioctl',['acodec_name:name','acodec_value:value','acodec_mute:mute'])">执行控制</button>
       </div>
@@ -257,11 +262,12 @@ audio{width:100%;margin-top:10px}
     <div class="grid">
       <div class="panel">
         <h2>麦克风测试</h2>
-        <label>左输入增强 Boost<select id="mic_boost_l"><option value="1">开启 1</option><option value="0">关闭 0</option></select></label>
-        <label>右输入增强 Boost<select id="mic_boost_r"><option value="1">开启 1</option><option value="0">关闭 0</option></select></label>
+        <div class="hint">录音固定输出 16 kHz / 16 bit WAV。Boost：0 关闭、1 开启；MIC 模拟增益：0~31；总输入音量：-78~80 dB，数值越大录音越响，厂商建议常用 20~50 dB。</div>
+        <label>左输入增强 0~1<select id="mic_boost_l"><option value="1">1 开启</option><option value="0">0 关闭</option></select></label>
+        <label>右输入增强 0~1<select id="mic_boost_r"><option value="1">1 开启</option><option value="0">0 关闭</option></select></label>
         <label>左麦模拟增益 0~31<input id="mic_gain_l" value="31" min="0" max="31" type="number"></label>
         <label>右麦模拟增益 0~31<input id="mic_gain_r" value="31" min="0" max="31" type="number"></label>
-        <label>总输入音量 0~80 dB<input id="mic_input_volume_db" value="80" min="0" max="80" type="number"></label>
+        <label>总输入音量 -78~80 dB<input id="mic_input_volume_db" value="80" min="-78" max="80" type="number"></label>
         <div class="row">
           <button onclick="saveMicInputSettings()">保存输入参数</button>
           <button onclick="call('/api/demo/mic/input_settings/get')">读取输入参数</button>
@@ -278,10 +284,11 @@ audio{width:100%;margin-top:10px}
       </div>
       <div class="panel">
         <h2>扬声器测试</h2>
-        <label>频率 Hz<input id="tone_freq" value="1000"></label>
-        <label>时长 ms<input id="tone_duration" value="3000"></label>
-        <label>音量百分比<input id="tone_volume" value="80"></label>
-        <label>语音文件路径<input id="wav_path" value="audio/speaker_voice_16k.wav"></label>
+        <div class="hint">播放频率的音量百分比只缩放生成的正弦 PCM；播放语音文件的响度由文件自身幅度、AO 输出音量和 ACODEC 输出/DAC 配置共同决定。播放链路固定按 16 kHz / 16 bit PCM 输出。</div>
+        <label>频率 20~20000 Hz<input id="tone_freq" value="1000" min="20" max="20000" type="number"></label>
+        <label>时长 100~60000 ms<input id="tone_duration" value="3000" min="100" max="60000" type="number"></label>
+        <label>频率音量 0~100%<input id="tone_volume" value="80" min="0" max="100" type="number"></label>
+        <label>语音文件 16k WAV<input id="wav_path" value="audio/speaker_voice_16k.wav"></label>
         <div class="row">
           <button class="primary" onclick="postForm('/api/demo/speaker/tone',['tone_freq:freq','tone_duration:duration','tone_volume:volume'])">播放频率</button>
           <button onclick="postForm('/api/demo/speaker/file',['wav_path:path'])">播放文件</button>
@@ -296,6 +303,9 @@ audio{width:100%;margin-top:10px}
     <pre id="log"></pre>
   </div>
 </main>
+<datalist id="sample_rate_list"><option value="8000"><option value="11025"><option value="12000"><option value="16000"><option value="22050"><option value="24000"><option value="32000"><option value="44100"><option value="48000"><option value="64000"><option value="96000"></datalist>
+<datalist id="point_list"><option value="80"><option value="160"><option value="240"><option value="320"><option value="480"><option value="1024"><option value="2048"></datalist>
+<datalist id="channel_count_list"><option value="1"><option value="2"><option value="4"><option value="8"></datalist>
 <script>
 // 页签定义。每个页签对应一个厂商接口族或一个实际录放测试流程。
 const tabDefs=[['state','基础状态'],['ai','麦克风采集'],['ao','扬声器播放'],['codec','编解码'],['vqe','音频算法'],['acodec','模拟编解码器'],['demo','录放测试']];
@@ -321,8 +331,8 @@ const acodecs=[
   ['set_dac_de_emphasis','设置 DAC 去加重'],['set_adc_hp_filter','设置 ADC 高通滤波'],['set_i2s1_data_width','设置 I2S1 位宽'],
   ['dac_soft_mute','DAC 软静音'],['dac_soft_unmute','DAC 软取消静音'],['dac_soft_mute_rate','DAC 软静音速率'],['query_status','查询状态']
 ];
-const stateNames={audio_initialized:'音频已初始化',ai_enabled:'采集设备已启用',ai_chn_enabled:'采集通道已启用',ao_enabled:'播放设备已启用',ao_chn_enabled:'播放通道已启用',recording:'正在录音',playing:'正在播放',record_input:'录音输入',left_saved:'左麦已保存',right_saved:'右麦已保存',record_frames:'录音帧数',record_bytes:'录音字节数',play_frames:'播放帧数',play_bytes:'播放字节数',acodec_boost_l:'左输入增强请求值 0~1',acodec_boost_r:'右输入增强请求值 0~1',acodec_gain_micl:'左麦模拟增益请求值 0~31',acodec_gain_micr:'右麦模拟增益请求值 0~31',acodec_input_volume_db:'总输入音量请求值 0~80 dB',acodec_actual_gain_micl:'左麦模拟增益实际值',acodec_actual_gain_micr:'右麦模拟增益实际值',acodec_actual_input_volume_db:'总输入音量实际值 dB',last_record_error:'最后录音错误码',last_record_error_text:'最后录音错误',sample_rate:'采样率',bits:'位宽',frame_samples:'每帧采样点'};
-const fieldNames={ok:'执行结果',error:'错误信息',ret:'返回码',errno:'系统错误码',strerror:'系统错误说明',input:'录音输入',name:'控制项',value:'参数值',clk_select:'时钟源',sample_rate:'采样率',bit_width:'位宽',work_mode:'工作模式',snd_mode:'声道模式',expand_flag:'扩展标志',frame_num:'缓存帧数',point_num_per_frame:'每帧采样点',chn_cnt:'通道数量',clk_share:'时钟共享',i2s_type:'I2S 类型',mode:'模式',raw_frame_enable:'原始帧输出',usr_frame_depth:'用户帧深度',track_mode:'声道映射',gain:'增益',fd:'文件描述符',boost_l:'左输入增强 0~1',boost_r:'右输入增强 0~1',gain_micl:'左麦模拟增益 0~31',gain_micr:'右麦模拟增益 0~31',input_volume_db:'总输入音量 0~80 dB',actual_gain_micl:'左麦模拟增益实际值',actual_gain_micr:'右麦模拟增益实际值',actual_input_volume_db:'总输入音量实际值 dB',chn_total_num:'通道总数',chn_free_num:'空闲通道数',chn_busy_num:'忙碌通道数',delay_ms:'延迟毫秒',volume_db:'输出音量 dB',source:'数据来源',enable:'开关',stream_phys_addr:'码流物理地址',stream_size:'码流大小',frame_num:'帧数',frame_size:'帧大小',left_byte:'剩余字节',open_mask:'算法开关掩码',work_sample_rate:'工作采样率'};
+const stateNames={audio_initialized:'音频已初始化',ai_enabled:'采集设备已启用',ai_chn_enabled:'采集通道已启用',ao_enabled:'播放设备已启用',ao_chn_enabled:'播放通道已启用',recording:'正在录音',playing:'正在播放',record_input:'录音输入',left_saved:'左麦已保存',right_saved:'右麦已保存',record_frames:'录音帧数',record_bytes:'录音字节数',play_frames:'播放帧数',play_bytes:'播放字节数',acodec_boost_l:'左输入增强请求值 0~1',acodec_boost_r:'右输入增强请求值 0~1',acodec_gain_micl:'左麦模拟增益请求值 0~31',acodec_gain_micr:'右麦模拟增益请求值 0~31',acodec_input_volume_db:'总输入音量请求值 -78~80 dB',acodec_actual_gain_micl:'左麦模拟增益实际值',acodec_actual_gain_micr:'右麦模拟增益实际值',acodec_actual_input_volume_db:'总输入音量实际值 dB',last_record_error:'最后录音错误码',last_record_error_text:'最后录音错误',sample_rate:'采样率',bits:'位宽',frame_samples:'每帧采样点'};
+const fieldNames={ok:'执行结果',error:'错误信息',ret:'返回码',errno:'系统错误码',strerror:'系统错误说明',input:'录音输入',name:'控制项',value:'参数值',clk_select:'时钟源',sample_rate:'采样率',bit_width:'位宽',work_mode:'工作模式',snd_mode:'声道模式',expand_flag:'扩展标志',frame_num:'缓存帧数',point_num_per_frame:'每帧采样点',chn_cnt:'通道数量',clk_share:'时钟共享',i2s_type:'I2S 类型',mode:'模式',raw_frame_enable:'原始帧输出',usr_frame_depth:'用户帧深度',track_mode:'声道映射',gain:'增益',fd:'文件描述符',boost_l:'左输入增强 0~1',boost_r:'右输入增强 0~1',gain_micl:'左麦模拟增益 0~31',gain_micr:'右麦模拟增益 0~31',input_volume_db:'总输入音量 -78~80 dB',actual_gain_micl:'左麦模拟增益实际值',actual_gain_micr:'右麦模拟增益实际值',actual_input_volume_db:'总输入音量实际值 dB',chn_total_num:'通道总数',chn_free_num:'空闲通道数',chn_busy_num:'忙碌通道数',delay_ms:'延迟毫秒',volume_db:'输出音量 dB',source:'数据来源',enable:'开关',stream_phys_addr:'码流物理地址',stream_size:'码流大小',frame_num:'帧数',frame_size:'帧大小',left_byte:'剩余字节',open_mask:'算法开关掩码',work_sample_rate:'工作采样率'};
 const valueNames={true:'是',false:'否',left:'左麦',right:'右麦',stereo:'双声道',cached:'缓存值'};
 
 // 简短 DOM 工具函数，让 HTML 控件里的事件处理表达式保持可读。
@@ -332,16 +342,17 @@ function opts(id,arr){$(id).innerHTML=arr.map(x=>`<option value="${x[0]}">${x[1]
 
 // 渲染 AI/AO 共用的 ot_aio_attr 参数表单。
 function aioFields(prefix){return `
-<label>采样率<select id="${prefix}_sample_rate"><option>16000</option><option>8000</option><option>12000</option><option>24000</option><option>32000</option><option>44100</option><option>48000</option></select></label>
+<div class="hint">公共音频属性：采样率使用厂商枚举值；缓存帧数 2~300；每帧采样点 80/160/240/320/480/1024/2048；通道数量 1/2/4/8。16 kHz 推荐每帧 320 点，即 20 ms。</div>
+<label>采样率 Hz<select id="${prefix}_sample_rate"><option>16000</option><option>8000</option><option>11025</option><option>12000</option><option>22050</option><option>24000</option><option>32000</option><option>44100</option><option>48000</option><option>64000</option><option>96000</option></select></label>
 <label>位宽<select id="${prefix}_bit_width"><option value="16">16 位</option><option value="8">8 位</option><option value="24">24 位</option></select></label>
-<label>工作模式<input id="${prefix}_work_mode" value="0"></label>
-<label>声道模式<select id="${prefix}_snd_mode"><option value="0">单声道</option><option value="1">双声道</option></select></label>
-<label>扩展标志<input id="${prefix}_expand_flag" value="0"></label>
-<label>缓存帧数<input id="${prefix}_frame_num" value="10"></label>
-<label>每帧采样点<input id="${prefix}_point_num_per_frame" value="320"></label>
-<label>通道数量<input id="${prefix}_chn_cnt" value="1"></label>
-<label>时钟共享<input id="${prefix}_clk_share" value="0"></label>
-<label>I2S 类型<input id="${prefix}_i2s_type" value="0"></label>`}
+<label>工作模式 0~5<select id="${prefix}_work_mode"><option value="0">0 I2S 主模式</option><option value="1">1 I2S 从模式</option><option value="2">2 PCM 从标准</option><option value="3">3 PCM 从非标准</option><option value="4">4 PCM 主标准</option><option value="5">5 PCM 主非标准</option></select></label>
+<label>声道模式 0~1<select id="${prefix}_snd_mode"><option value="0">0 单声道</option><option value="1">1 双声道</option></select></label>
+<label>扩展标志 0/1/2<input id="${prefix}_expand_flag" value="0" min="0" max="2" type="number"></label>
+<label>缓存帧数 2~300<input id="${prefix}_frame_num" value="10" min="2" max="300" type="number"></label>
+<label>每帧采样点<input id="${prefix}_point_num_per_frame" value="320" list="point_list" type="number"></label>
+<label>通道数量 1/2/4/8<input id="${prefix}_chn_cnt" value="1" list="channel_count_list" type="number"></label>
+<label>时钟共享 0~1<select id="${prefix}_clk_share"><option value="0">0 独立时钟</option><option value="1">1 AI 使用 AO 时钟</option></select></label>
+<label>I2S 类型 0~3<select id="${prefix}_i2s_type"><option value="0">0 内置 Codec</option><option value="1">1 内置 HDMI</option><option value="2">2 外置硬件</option><option value="3">3 数字麦</option></select></label>`}
 function init(){
   // 页面加载时填充动态下拉框，然后读取一次后端状态。
   $('tabs').innerHTML=tabDefs.map((t,i)=>`<button class="${i?'':'primary'}" onclick="tab('${t[0]}',this)">${t[1]}</button>`).join('');
