@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
@@ -24,6 +25,7 @@
 #include <string>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -106,9 +108,34 @@ struct AudioState {
     ot_audio_track_mode ao_track = OT_AUDIO_TRACK_NORMAL;
     int ao_volume_db = 0;
     bool ao_mute = false;
+    int last_record_error = 0;
+    std::string last_record_error_text;
 };
 
 AudioState g_state;
+std::mutex g_diag_mu;
+std::string g_last_detail_error;
+
+/* 保存最近一次底层调用失败详情，供 HTTP 返回和 /api/state 展示。 */
+void set_detail_error(const std::string &text)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mu);
+    g_last_detail_error = text;
+}
+
+/* 取出最近一次底层调用失败详情；没有详情时使用调用方传入的兜底文本。 */
+std::string get_detail_error(const std::string &fallback)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mu);
+    return g_last_detail_error.empty() ? fallback : g_last_detail_error;
+}
+
+/* 清空底层调用失败详情，避免旧错误影响下一次接口返回。 */
+void clear_detail_error()
+{
+    std::lock_guard<std::mutex> lock(g_diag_mu);
+    g_last_detail_error.clear();
+}
 
 /* 读取整数参数；参数缺失时返回确定的默认值。 */
 int to_int(const std::map<std::string, std::string> &q, const std::string &key, int def)
@@ -498,8 +525,155 @@ int ensure_audio_init()
     std::lock_guard<std::mutex> lock(g_state.mu);
     if (g_state.audio_initialized) return TD_SUCCESS;
     int ret = ss_mpi_audio_init();
-    if (ret == TD_SUCCESS) g_state.audio_initialized = true;
+    if (ret == TD_SUCCESS) {
+        g_state.audio_initialized = true;
+    } else {
+        set_detail_error("ss_mpi_audio_init 失败，返回码=" + std::to_string(ret));
+    }
     return ret;
+}
+
+/*
+ * 打开 ACODEC 控制句柄。
+ *
+ * 板端驱动在音频模块初始化后可能已经由 MPP 持有 /dev/acodec，再次 open
+ * 会返回 EPERM。这里先扫描本进程已打开的文件描述符，找到同一个字符设备
+ * 后 dup 一份出来使用；找不到时才直接 open。
+ */
+int open_acodec_control()
+{
+    struct stat codec_stat{};
+    if (stat("/dev/acodec", &codec_stat) == 0) {
+        DIR *fds = opendir("/proc/self/fd");
+        if (fds != nullptr) {
+            while (struct dirent *entry = readdir(fds)) {
+                char *end = nullptr;
+                long candidate = std::strtol(entry->d_name, &end, 10);
+                if (end == entry->d_name || *end != '\0' || candidate < 0) continue;
+                int fd = static_cast<int>(candidate);
+                struct stat fd_stat{};
+                if (fstat(fd, &fd_stat) == 0 && S_ISCHR(fd_stat.st_mode) &&
+                    fd_stat.st_rdev == codec_stat.st_rdev &&
+                    (fcntl(fd, F_GETFL) & O_ACCMODE) == O_RDWR) {
+                    int duplicate = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+                    if (duplicate >= 0) {
+                        closedir(fds);
+                        return duplicate;
+                    }
+                }
+            }
+            closedir(fds);
+        }
+    }
+    return open("/dev/acodec", O_RDWR | O_CLOEXEC);
+}
+
+/*
+ * 配置板载 ACODEC 的输入模拟链路。
+ *
+ * 录音失败时板端表现为 AI 能启动但没有帧输出。现有可工作的音频封装层
+ * 在 AI 启动前会配置 boost、MIC PGA 和输入音量；这个底层 demo 不使用
+ * 封装库，因此也必须自己完成相同的硬件初始化。
+ */
+int configure_acodec_input()
+{
+    int fd = open_acodec_control();
+    if (fd < 0) {
+        int saved = errno;
+        set_detail_error("打开 /dev/acodec 失败，errno=" + std::to_string(saved) + "，原因=" + std::strerror(saved));
+        return -saved;
+    }
+
+    td_u32 boost = 1;
+    td_u32 input_volume = 80;
+    td_u32 gain = 0x1f;
+    td_u32 unmute = 0;
+
+    /*
+     * 每一步失败都立即返回，并记录具体 ioctl 名称。
+     * 这样网页上可以直接看到是 open、采样率、boost、增益、音量还是静音失败。
+     * 16kHz 采样率由 ss_mpi_ai_set_pub_attr 设置；板端实测启动流程里直接
+     * 调用 OT_ACODEC_SET_I2S1_FS 会被驱动返回 EPERM，因此录音启动路径不写这个 ioctl。
+     */
+    auto call = [&](unsigned long req, void *arg, const char *name) -> int {
+        if (ioctl(fd, req, arg) == 0) return 0;
+        int saved = errno;
+        set_detail_error(std::string("ACODEC 输入配置失败：") + name +
+                         "，errno=" + std::to_string(saved) +
+                         "，原因=" + std::strerror(saved));
+        return -saved;
+    };
+
+    int ret = 0;
+    if ((ret = call(OT_ACODEC_ENABLE_BOOSTL, &boost, "OT_ACODEC_ENABLE_BOOSTL")) != 0) { close(fd); return ret; }
+    if ((ret = call(OT_ACODEC_ENABLE_BOOSTR, &boost, "OT_ACODEC_ENABLE_BOOSTR")) != 0) { close(fd); return ret; }
+
+    /*
+     * 麦克风 PGA 增益沿用已验证 demo 的兼容写法：从最高请求值向下尝试。
+     * 板端驱动会拒绝部分增益档位，固定写 0x1f 会返回 EPERM；降档后以
+     * 驱动接受的实际值为准。
+     */
+    auto set_gain_compat = [&](unsigned long req, const char *name) -> int {
+        int saved = 0;
+        for (td_u32 current = gain;; --current) {
+            if (ioctl(fd, req, &current) == 0) return 0;
+            saved = errno;
+            if (current == 0U) break;
+        }
+        set_detail_error(std::string("ACODEC 输入配置失败：") + name +
+                         "，已从 31 降档到 0 均被驱动拒绝，errno=" +
+                         std::to_string(saved) + "，原因=" + std::strerror(saved));
+        return -saved;
+    };
+    if ((ret = set_gain_compat(OT_ACODEC_SET_GAIN_MICL, "OT_ACODEC_SET_GAIN_MICL")) != 0) { close(fd); return ret; }
+    if ((ret = set_gain_compat(OT_ACODEC_SET_GAIN_MICR, "OT_ACODEC_SET_GAIN_MICR")) != 0) { close(fd); return ret; }
+    if ((ret = call(OT_ACODEC_SET_INPUT_VOLUME, &input_volume, "OT_ACODEC_SET_INPUT_VOLUME")) != 0) { close(fd); return ret; }
+    if ((ret = call(OT_ACODEC_SET_MICL_MUTE, &unmute, "OT_ACODEC_SET_MICL_MUTE")) != 0) { close(fd); return ret; }
+    if ((ret = call(OT_ACODEC_SET_MICR_MUTE, &unmute, "OT_ACODEC_SET_MICR_MUTE")) != 0) { close(fd); return ret; }
+
+    close(fd);
+    return 0;
+}
+
+/*
+ * 配置板载 ACODEC 的输出模拟链路。
+ *
+ * MPP 的 AO 音量只在 AO 设备启用后才能稳定设置；ACODEC 的输出通路
+ * 则负责 DAC 侧不静音、输出音量处于可听状态。
+ */
+int configure_acodec_output()
+{
+    int fd = open_acodec_control();
+    if (fd < 0) {
+        int saved = errno;
+        set_detail_error("打开 /dev/acodec 失败，errno=" + std::to_string(saved) + "，原因=" + std::strerror(saved));
+        return -saved;
+    }
+
+    td_s32 output_db = 0;
+    td_u32 unmute = 0;
+
+    /*
+     * 输出链路也按单步返回，便于定位扬声器硬件配置失败项。
+     * 16kHz 采样率由 ss_mpi_ao_set_pub_attr 设置；这里不写 I2S1_FS，
+     * 保持和已验证可工作的 ACODEC 输出配置方式一致。
+     */
+    auto call = [&](unsigned long req, void *arg, const char *name) -> int {
+        if (ioctl(fd, req, arg) == 0) return 0;
+        int saved = errno;
+        set_detail_error(std::string("ACODEC 输出配置失败：") + name +
+                         "，errno=" + std::to_string(saved) +
+                         "，原因=" + std::strerror(saved));
+        return -saved;
+    };
+
+    int ret = 0;
+    if ((ret = call(OT_ACODEC_SET_OUTPUT_VOLUME, &output_db, "OT_ACODEC_SET_OUTPUT_VOLUME")) != 0) { close(fd); return ret; }
+    if ((ret = call(OT_ACODEC_SET_DACL_MUTE, &unmute, "OT_ACODEC_SET_DACL_MUTE")) != 0) { close(fd); return ret; }
+    if ((ret = call(OT_ACODEC_SET_DACR_MUTE, &unmute, "OT_ACODEC_SET_DACR_MUTE")) != 0) { close(fd); return ret; }
+
+    close(fd);
+    return 0;
 }
 
 /*
@@ -508,16 +682,17 @@ int ensure_audio_init()
  * 启动顺序：
  *   1. ss_mpi_audio_init
  *   2. ss_mpi_ai_set_pub_attr 设置 16k/16bit/mono/320 点
- *   3. ss_mpi_ai_set_track_mode 选择左/右物理输入
- *   4. ss_mpi_ai_get_track_mode 读回核对
- *   5. ss_mpi_ai_set_chn_param 设置用户帧深度
- *   6. 启用 AI 设备和通道
+ *   3. ss_mpi_ai_set_chn_param 设置用户帧深度
+ *   4. 启用 AI 设备和通道
+ *   5. ss_mpi_ai_set_track_mode 选择左/右物理输入
+ *   6. ss_mpi_ai_get_track_mode 读回核对
  *
  * 读回核对可以给出明确的麦克风选择成功/失败结果，避免只写不验。
  *
  */
 int ensure_ai_started(ot_audio_track_mode track)
 {
+    clear_detail_error();
     int ret = ensure_audio_init();
     if (ret != TD_SUCCESS) return ret;
     ot_aio_attr attr{};
@@ -528,21 +703,48 @@ int ensure_ai_started(ot_audio_track_mode track)
     attr.frame_num = 10;
     attr.point_num_per_frame = kFrameSamples;
     attr.chn_cnt = 1;
+    attr.clk_share = 1;
     attr.i2s_type = OT_AIO_I2STYPE_INNERCODEC;
     ret = ss_mpi_ai_set_pub_attr(kAiDev, &attr);
-    if (ret != TD_SUCCESS) return ret;
-    ret = ss_mpi_ai_set_track_mode(kAiDev, track);
-    if (ret != TD_SUCCESS) return ret;
-    ot_audio_track_mode readback = OT_AUDIO_TRACK_NORMAL;
-    ret = ss_mpi_ai_get_track_mode(kAiDev, &readback);
-    if (ret != TD_SUCCESS || readback != track) return ret != TD_SUCCESS ? ret : TD_FAILURE;
+    if (ret != TD_SUCCESS) {
+        set_detail_error("ss_mpi_ai_set_pub_attr 失败，返回码=" + std::to_string(ret));
+        return ret;
+    }
     ot_ai_chn_param p{};
     p.usr_frame_depth = 8;
     (void)ss_mpi_ai_set_chn_param(kAiDev, kAiChn, &p);
     ret = ss_mpi_ai_enable(kAiDev);
-    if (ret != TD_SUCCESS) return ret;
+    if (ret != TD_SUCCESS) {
+        set_detail_error("ss_mpi_ai_enable 失败，返回码=" + std::to_string(ret));
+        return ret;
+    }
     ret = ss_mpi_ai_enable_chn(kAiDev, kAiChn);
     if (ret != TD_SUCCESS) {
+        (void)ss_mpi_ai_disable(kAiDev);
+        set_detail_error("ss_mpi_ai_enable_chn 失败，返回码=" + std::to_string(ret));
+        return ret;
+    }
+    ret = ss_mpi_ai_set_track_mode(kAiDev, track);
+    if (ret != TD_SUCCESS) {
+        (void)ss_mpi_ai_disable_chn(kAiDev, kAiChn);
+        (void)ss_mpi_ai_disable(kAiDev);
+        set_detail_error("ss_mpi_ai_set_track_mode 失败，返回码=" + std::to_string(ret));
+        return ret;
+    }
+    ot_audio_track_mode readback = OT_AUDIO_TRACK_NORMAL;
+    ret = ss_mpi_ai_get_track_mode(kAiDev, &readback);
+    if (ret != TD_SUCCESS || readback != track) {
+        (void)ss_mpi_ai_disable_chn(kAiDev, kAiChn);
+        (void)ss_mpi_ai_disable(kAiDev);
+        set_detail_error(ret != TD_SUCCESS ?
+            "ss_mpi_ai_get_track_mode 失败，返回码=" + std::to_string(ret) :
+            "ss_mpi_ai_get_track_mode 读回值与请求值不一致，请求值=" + std::to_string(static_cast<int>(track)) +
+                "，读回值=" + std::to_string(static_cast<int>(readback)));
+        return ret != TD_SUCCESS ? ret : TD_FAILURE;
+    }
+    ret = configure_acodec_input();
+    if (ret != 0) {
+        (void)ss_mpi_ai_disable_chn(kAiDev, kAiChn);
         (void)ss_mpi_ai_disable(kAiDev);
         return ret;
     }
@@ -575,8 +777,11 @@ void stop_ai()
  */
 int ensure_ao_started()
 {
+    clear_detail_error();
     int ret = ensure_audio_init();
     if (ret != TD_SUCCESS) return ret;
+    ret = configure_acodec_output();
+    if (ret != 0) return ret;
     ot_aio_attr attr{};
     attr.sample_rate = OT_AUDIO_SAMPLE_RATE_16000;
     attr.bit_width = OT_AUDIO_BIT_WIDTH_16;
@@ -585,22 +790,37 @@ int ensure_ao_started()
     attr.frame_num = 10;
     attr.point_num_per_frame = kFrameSamples;
     attr.chn_cnt = 1;
+    attr.clk_share = 1;
     attr.i2s_type = OT_AIO_I2STYPE_INNERCODEC;
     ret = ss_mpi_ao_set_pub_attr(kAoDev, &attr);
-    if (ret != TD_SUCCESS) return ret;
+    if (ret != TD_SUCCESS) {
+        set_detail_error("ss_mpi_ao_set_pub_attr 失败，返回码=" + std::to_string(ret));
+        return ret;
+    }
     ret = ss_mpi_ao_enable(kAoDev);
-    if (ret != TD_SUCCESS) return ret;
+    if (ret != TD_SUCCESS) {
+        set_detail_error("ss_mpi_ao_enable 失败，返回码=" + std::to_string(ret));
+        return ret;
+    }
     ret = ss_mpi_ao_enable_chn(kAoDev, kAoChn);
     if (ret != TD_SUCCESS) {
         (void)ss_mpi_ao_disable(kAoDev);
+        set_detail_error("ss_mpi_ao_enable_chn 失败，返回码=" + std::to_string(ret));
         return ret;
     }
+    int volume_db = 0;
+    bool mute = false;
     {
         std::lock_guard<std::mutex> lock(g_state.mu);
         g_state.ao_enabled = true;
         g_state.ao_chn_enabled = true;
         g_state.ao_attr = attr;
+        volume_db = g_state.ao_volume_db;
+        mute = g_state.ao_mute;
     }
+    (void)ss_mpi_ao_set_volume(kAoDev, volume_db);
+    ot_audio_fade fade{};
+    (void)ss_mpi_ao_set_mute(kAoDev, mute ? TD_TRUE : TD_FALSE, &fade);
     return TD_SUCCESS;
 }
 
@@ -642,18 +862,11 @@ int send_pcm_frame(const int16_t *samples, uint32_t count)
  */
 void record_worker(std::string input, std::string path)
 {
-    const ot_audio_track_mode track = input == "right" ? OT_AUDIO_TRACK_BOTH_RIGHT : OT_AUDIO_TRACK_BOTH_LEFT;
-    int ret = ensure_ai_started(track);
-    if (ret != TD_SUCCESS) {
-        std::lock_guard<std::mutex> lock(g_state.mu);
-        g_state.recording = false;
-        return;
-    }
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     while (!g_state.record_stop.load()) {
         ot_audio_frame frame{};
         ot_aec_frame aec{};
-        ret = ss_mpi_ai_get_frame(kAiDev, kAiChn, &frame, &aec, 1000);
+        int ret = ss_mpi_ai_get_frame(kAiDev, kAiChn, &frame, &aec, 1000);
         if (ret == TD_SUCCESS) {
             if (frame.virt_addr[0] != nullptr && frame.len > 0) {
                 out.write(reinterpret_cast<const char *>(frame.virt_addr[0]), frame.len);
@@ -826,6 +1039,8 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
           << ",\"record_bytes\":" << g_state.record_bytes
           << ",\"play_frames\":" << g_state.play_frames
           << ",\"play_bytes\":" << g_state.play_bytes
+          << ",\"last_record_error\":" << g_state.last_record_error
+          << ",\"last_record_error_text\":\"" << json_escape(g_state.last_record_error_text) << "\""
           << ",\"sample_rate\":16000,\"bits\":16,\"frame_samples\":320}\n";
         return o.str();
     }
@@ -1011,11 +1226,21 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
         return ret == TD_SUCCESS ? ok_json("\"delay_ms\":" + std::to_string(ms)) : err_json("ss_mpi_ao_get_chn_delay failed", ret);
     }
     if (req.path == "/api/ao/set_volume") {
-        int ret = ss_mpi_ao_set_volume(to_int(q, "ao_dev", kAoDev), to_int(q, "volume_db", 0));
-        if (ret == TD_SUCCESS) { std::lock_guard<std::mutex> lock(g_state.mu); g_state.ao_volume_db = to_int(q, "volume_db", 0); }
+        int volume_db = to_int(q, "volume_db", 0);
+        bool enabled = false;
+        {
+            std::lock_guard<std::mutex> lock(g_state.mu);
+            g_state.ao_volume_db = volume_db;
+            enabled = g_state.ao_enabled;
+        }
+        int ret = enabled ? ss_mpi_ao_set_volume(to_int(q, "ao_dev", kAoDev), volume_db) : TD_SUCCESS;
         return ret == TD_SUCCESS ? ok_json() : err_json("ss_mpi_ao_set_volume failed", ret);
     }
     if (req.path == "/api/ao/get_volume") {
+        {
+            std::lock_guard<std::mutex> lock(g_state.mu);
+            if (!g_state.ao_enabled) return ok_json("\"volume_db\":" + std::to_string(g_state.ao_volume_db) + ",\"source\":\"cached\"");
+        }
         td_s32 vol = 0;
         int ret = ss_mpi_ao_get_volume(to_int(q, "ao_dev", kAoDev), &vol);
         return ret == TD_SUCCESS ? ok_json("\"volume_db\":" + std::to_string(vol)) : err_json("ss_mpi_ao_get_volume failed", ret);
@@ -1025,11 +1250,21 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
         fade.fade = to_int(q, "fade", 0) ? TD_TRUE : TD_FALSE;
         fade.fade_in_rate = static_cast<ot_audio_fade_rate>(to_int(q, "fade_in_rate", 0));
         fade.fade_out_rate = static_cast<ot_audio_fade_rate>(to_int(q, "fade_out_rate", 0));
-        int ret = ss_mpi_ao_set_mute(to_int(q, "ao_dev", kAoDev), to_int(q, "enable", 0) ? TD_TRUE : TD_FALSE, &fade);
-        if (ret == TD_SUCCESS) { std::lock_guard<std::mutex> lock(g_state.mu); g_state.ao_mute = to_int(q, "enable", 0) != 0; }
+        bool mute = to_int(q, "enable", 0) != 0;
+        bool enabled = false;
+        {
+            std::lock_guard<std::mutex> lock(g_state.mu);
+            g_state.ao_mute = mute;
+            enabled = g_state.ao_enabled;
+        }
+        int ret = enabled ? ss_mpi_ao_set_mute(to_int(q, "ao_dev", kAoDev), mute ? TD_TRUE : TD_FALSE, &fade) : TD_SUCCESS;
         return ret == TD_SUCCESS ? ok_json() : err_json("ss_mpi_ao_set_mute failed", ret);
     }
     if (req.path == "/api/ao/get_mute") {
+        {
+            std::lock_guard<std::mutex> lock(g_state.mu);
+            if (!g_state.ao_enabled) return ok_json(std::string("\"enable\":") + (g_state.ao_mute ? "true" : "false") + ",\"source\":\"cached\"");
+        }
         td_bool enable = TD_FALSE;
         ot_audio_fade fade{};
         int ret = ss_mpi_ao_get_mute(to_int(q, "ao_dev", kAoDev), &enable, &fade);
@@ -1298,16 +1533,33 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
 
     if (req.path == "/api/demo/mic/start") {
         stop_record_thread();
-        std::lock_guard<std::mutex> lock(g_state.mu);
-        if (g_state.playing) { *code = 409; return err_json("speaker is playing"); }
         std::string input = get_str(q, "input", "left");
         std::string path = input == "right" ? kRightPcm : kLeftPcm;
-        g_state.record_stop.store(false);
-        g_state.recording = true;
-        g_state.record_input = input;
-        g_state.record_frames = 0;
-        g_state.record_bytes = 0;
-        g_state.record_thread = std::thread(record_worker, input, path);
+        const ot_audio_track_mode track = input == "right" ? OT_AUDIO_TRACK_BOTH_RIGHT : OT_AUDIO_TRACK_BOTH_LEFT;
+        {
+            std::lock_guard<std::mutex> lock(g_state.mu);
+            if (g_state.playing) { *code = 409; return err_json("speaker is playing"); }
+        }
+        int ret = ensure_ai_started(track);
+        if (ret != TD_SUCCESS) {
+            std::string detail = get_detail_error("ensure_ai_started failed");
+            std::lock_guard<std::mutex> lock(g_state.mu);
+            g_state.last_record_error = ret;
+            g_state.last_record_error_text = detail;
+            *code = 500;
+            return err_json(detail, ret);
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_state.mu);
+            g_state.record_stop.store(false);
+            g_state.recording = true;
+            g_state.record_input = input;
+            g_state.record_frames = 0;
+            g_state.record_bytes = 0;
+            g_state.last_record_error = 0;
+            g_state.last_record_error_text.clear();
+            g_state.record_thread = std::thread(record_worker, input, path);
+        }
         return ok_json("\"input\":\"" + json_escape(input) + "\"");
     }
     if (req.path == "/api/demo/mic/stop") {

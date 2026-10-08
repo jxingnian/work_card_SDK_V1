@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Audio MPP Web Demo</title>
+<title>音频 MPP 调试 Demo</title>
 <style>
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;background:#f6f7f9;color:#172033}
 header{padding:18px 24px;background:#fff;border-bottom:1px solid #dfe3ea;position:sticky;top:0;z-index:2}
@@ -28,7 +28,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#101828;color:#d8e2f0;
 audio{width:100%;margin-top:10px}
 </style>
 <header>
-  <h1>Audio MPP Web Demo</h1>
+  <h1>音频 MPP 调试 Demo</h1>
   <nav id="tabs"></nav>
 </header>
 <main>
@@ -49,7 +49,7 @@ audio{width:100%;margin-top:10px}
       </div>
       <div class="panel">
         <h2>模块参数</h2>
-        <label>clk_select<select id="clk_select"><option value="0">BASE</option><option value="1">SPARE</option></select></label>
+        <label>时钟源<select id="clk_select"><option value="0">基础时钟</option><option value="1">备用时钟</option></select></label>
         <div class="row">
           <button onclick="postForm('/api/audio/set_mod_param',['clk_select'])">设置</button>
           <button onclick="call('/api/audio/get_mod_param')">读取</button>
@@ -68,38 +68,38 @@ audio{width:100%;margin-top:10px}
         <h2>AI 公共参数</h2>
         <div id="ai-aio"></div>
         <div class="row">
-          <button class="primary" onclick="postAio('/api/ai/set_pub_attr','ai')">set_pub_attr</button>
-          <button onclick="call('/api/ai/get_pub_attr?ai_dev='+v('ai_dev'))">get_pub_attr</button>
-          <button onclick="call('/api/ai/clr_pub_attr?ai_dev='+v('ai_dev'))">clr_pub_attr</button>
+          <button class="primary" onclick="postAio('/api/ai/set_pub_attr','ai')">设置公共参数</button>
+          <button onclick="call('/api/ai/get_pub_attr?ai_dev='+v('ai_dev'))">读取公共参数</button>
+          <button onclick="call('/api/ai/clr_pub_attr?ai_dev='+v('ai_dev'))">清除公共参数</button>
         </div>
       </div>
       <div class="panel">
         <h2>AI 设备/通道</h2>
-        <label>ai_dev<input id="ai_dev" value="0"></label>
-        <label>ai_chn<input id="ai_chn" value="0"></label>
-        <label>mode<select id="ai_mode"><option value="0">NORMAL</option><option value="1">FAST</option></select></label>
-        <label>raw_frame_enable<select id="raw_frame_enable"><option value="0">false</option><option value="1">true</option></select></label>
-        <label>usr_frame_depth<input id="usr_frame_depth" value="4"></label>
-        <label>track_mode<select id="ai_track_mode"></select></label>
-        <label>dmic_gain<input id="dmic_gain" value="0"></label>
+        <label>采集设备号<input id="ai_dev" value="0"></label>
+        <label>采集通道号<input id="ai_chn" value="0"></label>
+        <label>通道模式<select id="ai_mode"><option value="0">普通模式</option><option value="1">快速模式</option></select></label>
+        <label>原始帧输出<select id="raw_frame_enable"><option value="0">关闭</option><option value="1">开启</option></select></label>
+        <label>用户帧深度<input id="usr_frame_depth" value="4"></label>
+        <label>声道映射<select id="ai_track_mode"></select></label>
+        <label>数字麦增益<input id="dmic_gain" value="0"></label>
         <div class="row">
-          <button onclick="call('/api/ai/enable?ai_dev='+v('ai_dev'))">enable</button>
-          <button onclick="call('/api/ai/disable?ai_dev='+v('ai_dev'))">disable</button>
-          <button onclick="call('/api/ai/enable_chn?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">enable_chn</button>
-          <button onclick="call('/api/ai/disable_chn?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">disable_chn</button>
+          <button onclick="call('/api/ai/enable?ai_dev='+v('ai_dev'))">启用设备</button>
+          <button onclick="call('/api/ai/disable?ai_dev='+v('ai_dev'))">禁用设备</button>
+          <button onclick="call('/api/ai/enable_chn?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">启用通道</button>
+          <button onclick="call('/api/ai/disable_chn?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">禁用通道</button>
         </div>
         <div class="row">
-          <button onclick="postForm('/api/ai/set_chn_attr',['ai_dev','ai_chn','ai_mode:mode','raw_frame_enable'])">set_chn_attr</button>
-          <button onclick="call('/api/ai/get_chn_attr?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get_chn_attr</button>
-          <button onclick="postForm('/api/ai/set_chn_param',['ai_dev','ai_chn','usr_frame_depth'])">set_chn_param</button>
-          <button onclick="call('/api/ai/get_chn_param?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get_chn_param</button>
+          <button onclick="postForm('/api/ai/set_chn_attr',['ai_dev','ai_chn','ai_mode:mode','raw_frame_enable'])">设置通道属性</button>
+          <button onclick="call('/api/ai/get_chn_attr?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">读取通道属性</button>
+          <button onclick="postForm('/api/ai/set_chn_param',['ai_dev','ai_chn','usr_frame_depth'])">设置通道参数</button>
+          <button onclick="call('/api/ai/get_chn_param?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">读取通道参数</button>
         </div>
         <div class="row">
-          <button onclick="postForm('/api/ai/set_track_mode',['ai_dev','ai_track_mode:track_mode'])">set_track_mode</button>
-          <button onclick="call('/api/ai/get_track_mode?ai_dev='+v('ai_dev'))">get_track_mode</button>
-          <button onclick="postForm('/api/ai/set_dmic_gain',['ai_dev','dmic_gain:gain'])">set_dmic_gain</button>
-          <button onclick="call('/api/ai/get_dmic_gain?ai_dev='+v('ai_dev'))">get_dmic_gain</button>
-          <button onclick="call('/api/ai/fd?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get_fd</button>
+          <button onclick="postForm('/api/ai/set_track_mode',['ai_dev','ai_track_mode:track_mode'])">设置声道映射</button>
+          <button onclick="call('/api/ai/get_track_mode?ai_dev='+v('ai_dev'))">读取声道映射</button>
+          <button onclick="postForm('/api/ai/set_dmic_gain',['ai_dev','dmic_gain:gain'])">设置数字麦增益</button>
+          <button onclick="call('/api/ai/get_dmic_gain?ai_dev='+v('ai_dev'))">读取数字麦增益</button>
+          <button onclick="call('/api/ai/fd?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">读取文件描述符</button>
         </div>
       </div>
     </div>
@@ -114,39 +114,39 @@ audio{width:100%;margin-top:10px}
         <h2>AO 公共参数</h2>
         <div id="ao-aio"></div>
         <div class="row">
-          <button class="primary" onclick="postAio('/api/ao/set_pub_attr','ao')">set_pub_attr</button>
-          <button onclick="call('/api/ao/get_pub_attr?ao_dev='+v('ao_dev'))">get_pub_attr</button>
-          <button onclick="call('/api/ao/clr_pub_attr?ao_dev='+v('ao_dev'))">clr_pub_attr</button>
+          <button class="primary" onclick="postAio('/api/ao/set_pub_attr','ao')">设置公共参数</button>
+          <button onclick="call('/api/ao/get_pub_attr?ao_dev='+v('ao_dev'))">读取公共参数</button>
+          <button onclick="call('/api/ao/clr_pub_attr?ao_dev='+v('ao_dev'))">清除公共参数</button>
         </div>
       </div>
       <div class="panel">
         <h2>AO 设备/通道/音量</h2>
-        <label>ao_dev<input id="ao_dev" value="0"></label>
-        <label>ao_chn<input id="ao_chn" value="0"></label>
-        <label>volume_db<input id="volume_db" value="0"></label>
-        <label>mute<select id="ao_mute"><option value="0">false</option><option value="1">true</option></select></label>
-        <label>track_mode<select id="ao_track_mode"></select></label>
+        <label>播放设备号<input id="ao_dev" value="0"></label>
+        <label>播放通道号<input id="ao_chn" value="0"></label>
+        <label>输出音量 dB<input id="volume_db" value="0"></label>
+        <label>静音<select id="ao_mute"><option value="0">关闭</option><option value="1">开启</option></select></label>
+        <label>声道映射<select id="ao_track_mode"></select></label>
         <div class="row">
-          <button onclick="call('/api/ao/enable?ao_dev='+v('ao_dev'))">enable</button>
-          <button onclick="call('/api/ao/disable?ao_dev='+v('ao_dev'))">disable</button>
-          <button onclick="call('/api/ao/enable_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">enable_chn</button>
-          <button onclick="call('/api/ao/disable_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">disable_chn</button>
-          <button onclick="call('/api/ao/pause_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">pause</button>
-          <button onclick="call('/api/ao/resume_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">resume</button>
+          <button onclick="call('/api/ao/enable?ao_dev='+v('ao_dev'))">启用设备</button>
+          <button onclick="call('/api/ao/disable?ao_dev='+v('ao_dev'))">禁用设备</button>
+          <button onclick="call('/api/ao/enable_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">启用通道</button>
+          <button onclick="call('/api/ao/disable_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">禁用通道</button>
+          <button onclick="call('/api/ao/pause_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">暂停通道</button>
+          <button onclick="call('/api/ao/resume_chn?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">恢复通道</button>
         </div>
         <div class="row">
-          <button onclick="postForm('/api/ao/set_volume',['ao_dev','volume_db'])">set_volume</button>
-          <button onclick="call('/api/ao/get_volume?ao_dev='+v('ao_dev'))">get_volume</button>
-          <button onclick="postForm('/api/ao/set_mute',['ao_dev','ao_mute:enable'])">set_mute</button>
-          <button onclick="call('/api/ao/get_mute?ao_dev='+v('ao_dev'))">get_mute</button>
-          <button onclick="postForm('/api/ao/set_track_mode',['ao_dev','ao_track_mode:track_mode'])">set_track_mode</button>
-          <button onclick="call('/api/ao/get_track_mode?ao_dev='+v('ao_dev'))">get_track_mode</button>
+          <button onclick="postForm('/api/ao/set_volume',['ao_dev','volume_db'])">设置音量</button>
+          <button onclick="call('/api/ao/get_volume?ao_dev='+v('ao_dev'))">读取音量</button>
+          <button onclick="postForm('/api/ao/set_mute',['ao_dev','ao_mute:enable'])">设置静音</button>
+          <button onclick="call('/api/ao/get_mute?ao_dev='+v('ao_dev'))">读取静音</button>
+          <button onclick="postForm('/api/ao/set_track_mode',['ao_dev','ao_track_mode:track_mode'])">设置声道映射</button>
+          <button onclick="call('/api/ao/get_track_mode?ao_dev='+v('ao_dev'))">读取声道映射</button>
         </div>
         <div class="row">
-          <button onclick="call('/api/ao/query_chn_status?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">query_status</button>
-          <button onclick="call('/api/ao/get_chn_delay?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">get_delay</button>
-          <button onclick="call('/api/ao/clear_buf?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">clear_buf</button>
-          <button onclick="call('/api/ao/fd?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">get_fd</button>
+          <button onclick="call('/api/ao/query_chn_status?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">查询通道状态</button>
+          <button onclick="call('/api/ao/get_chn_delay?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">读取延迟</button>
+          <button onclick="call('/api/ao/clear_buf?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">清空缓存</button>
+          <button onclick="call('/api/ao/fd?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">读取文件描述符</button>
         </div>
       </div>
     </div>
@@ -159,37 +159,37 @@ audio{width:100%;margin-top:10px}
   <section id="codec">
     <div class="grid">
       <div class="panel">
-        <h2>AENC</h2>
-        <label>aenc_chn<input id="aenc_chn" value="0"></label>
-        <label>type<select id="aenc_type"></select></label>
-        <label>point_num_per_frame<input id="aenc_points" value="320"></label>
-        <label>buf_size<input id="aenc_buf" value="10"></label>
-        <label>g726bps<input id="g726bps" value="2"></label>
-        <label>adpcm_type<input id="adpcm_type" value="0"></label>
-        <label>mute<select id="aenc_mute"><option value="0">false</option><option value="1">true</option></select></label>
+        <h2>音频编码</h2>
+        <label>编码通道号<input id="aenc_chn" value="0"></label>
+        <label>编码类型<select id="aenc_type"></select></label>
+        <label>每帧采样点<input id="aenc_points" value="320"></label>
+        <label>缓存帧数<input id="aenc_buf" value="10"></label>
+        <label>G726 码率档位<input id="g726bps" value="2"></label>
+        <label>ADPCM 类型<input id="adpcm_type" value="0"></label>
+        <label>编码静音<select id="aenc_mute"><option value="0">关闭</option><option value="1">开启</option></select></label>
         <div class="row">
-          <button onclick="postForm('/api/aenc/create',['aenc_chn','aenc_type:type','aenc_points:point_num_per_frame','aenc_buf:buf_size','g726bps','adpcm_type'])">create</button>
-          <button onclick="call('/api/aenc/destroy?aenc_chn='+v('aenc_chn'))">destroy</button>
-          <button onclick="postForm('/api/aenc/set_mute',['aenc_chn','aenc_mute:enable'])">set_mute</button>
-          <button onclick="call('/api/aenc/get_mute?aenc_chn='+v('aenc_chn'))">get_mute</button>
-          <button onclick="call('/api/aenc/clear_buf?aenc_chn='+v('aenc_chn'))">clear_buf</button>
-          <button onclick="call('/api/aenc/fd?aenc_chn='+v('aenc_chn'))">fd</button>
-          <button onclick="call('/api/aenc/buf_info?aenc_chn='+v('aenc_chn'))">buf_info</button>
+          <button onclick="postForm('/api/aenc/create',['aenc_chn','aenc_type:type','aenc_points:point_num_per_frame','aenc_buf:buf_size','g726bps','adpcm_type'])">创建通道</button>
+          <button onclick="call('/api/aenc/destroy?aenc_chn='+v('aenc_chn'))">销毁通道</button>
+          <button onclick="postForm('/api/aenc/set_mute',['aenc_chn','aenc_mute:enable'])">设置静音</button>
+          <button onclick="call('/api/aenc/get_mute?aenc_chn='+v('aenc_chn'))">读取静音</button>
+          <button onclick="call('/api/aenc/clear_buf?aenc_chn='+v('aenc_chn'))">清空缓存</button>
+          <button onclick="call('/api/aenc/fd?aenc_chn='+v('aenc_chn'))">文件描述符</button>
+          <button onclick="call('/api/aenc/buf_info?aenc_chn='+v('aenc_chn'))">缓存信息</button>
         </div>
       </div>
       <div class="panel">
-        <h2>ADEC</h2>
-        <label>adec_chn<input id="adec_chn" value="0"></label>
-        <label>type<select id="adec_type"></select></label>
-        <label>buf_size<input id="adec_buf" value="10"></label>
-        <label>mode<select id="adec_mode"><option value="0">PACK</option><option value="1">STREAM</option></select></label>
-        <label>instant_eos<select id="instant"><option value="0">false</option><option value="1">true</option></select></label>
+        <h2>音频解码</h2>
+        <label>解码通道号<input id="adec_chn" value="0"></label>
+        <label>解码类型<select id="adec_type"></select></label>
+        <label>缓存帧数<input id="adec_buf" value="10"></label>
+        <label>解码模式<select id="adec_mode"><option value="0">整包模式</option><option value="1">流模式</option></select></label>
+        <label>立即结束<select id="instant"><option value="0">否</option><option value="1">是</option></select></label>
         <div class="row">
-          <button onclick="postForm('/api/adec/create',['adec_chn','adec_type:type','adec_buf:buf_size','adec_mode:mode','g726bps','adpcm_type'])">create</button>
-          <button onclick="call('/api/adec/destroy?adec_chn='+v('adec_chn'))">destroy</button>
-          <button onclick="call('/api/adec/clear_buf?adec_chn='+v('adec_chn'))">clear_buf</button>
-          <button onclick="postForm('/api/adec/eos',['adec_chn','instant'])">eos</button>
-          <button onclick="call('/api/adec/status?adec_chn='+v('adec_chn'))">status</button>
+          <button onclick="postForm('/api/adec/create',['adec_chn','adec_type:type','adec_buf:buf_size','adec_mode:mode','g726bps','adpcm_type'])">创建通道</button>
+          <button onclick="call('/api/adec/destroy?adec_chn='+v('adec_chn'))">销毁通道</button>
+          <button onclick="call('/api/adec/clear_buf?adec_chn='+v('adec_chn'))">清空缓存</button>
+          <button onclick="postForm('/api/adec/eos',['adec_chn','instant'])">发送结束标记</button>
+          <button onclick="call('/api/adec/status?adec_chn='+v('adec_chn'))">查询状态</button>
         </div>
       </div>
     </div>
@@ -202,32 +202,32 @@ audio{width:100%;margin-top:10px}
   <section id="vqe">
     <div class="grid">
       <div class="panel">
-        <h2>VQE 参数</h2>
-        <label>open_mask<input id="open_mask" value="0"></label>
-        <label>work_sample_rate<input id="work_sample_rate" value="16000"></label>
-        <label>frame_sample<input id="frame_sample" value="320"></label>
-        <label>work_state<select id="work_state"><option value="0">COMMON</option><option value="1">MUSIC</option><option value="2">NOISY</option></select></label>
-        <label>in_chn_num<input id="in_chn_num" value="1"></label>
-        <label>out_chn_num<input id="out_chn_num" value="1"></label>
-        <label>hpf_freq<select id="hpf_freq"><option value="80">80</option><option value="120">120</option><option value="150">150</option></select></label>
+        <h2>音频算法参数</h2>
+        <label>算法开关掩码<input id="open_mask" value="0"></label>
+        <label>工作采样率<input id="work_sample_rate" value="16000"></label>
+        <label>算法帧长<input id="frame_sample" value="320"></label>
+        <label>工作场景<select id="work_state"><option value="0">普通环境</option><option value="1">音乐环境</option><option value="2">嘈杂环境</option></select></label>
+        <label>输入通道数<input id="in_chn_num" value="1"></label>
+        <label>输出通道数<input id="out_chn_num" value="1"></label>
+        <label>高通频率<select id="hpf_freq"><option value="80">80Hz</option><option value="120">120Hz</option><option value="150">150Hz</option></select></label>
       </div>
       <div class="panel">
-        <h2>AI/AO VQE</h2>
+        <h2>采集/播放算法</h2>
         <div class="row">
-          <button onclick="postVqe('/api/vqe/ai_record/set')">set AI record</button>
-          <button onclick="call('/api/vqe/ai_record/get?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get AI record</button>
-          <button onclick="postVqe('/api/vqe/ai_talk/set')">set AI talk</button>
-          <button onclick="call('/api/vqe/ai_talk/get?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get AI talk</button>
-          <button onclick="postVqe('/api/vqe/ai_talk_v2/set')">set AI talk v2</button>
-          <button onclick="call('/api/vqe/ai_talk_v2/get?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">get AI talk v2</button>
+          <button onclick="postVqe('/api/vqe/ai_record/set')">设置采集录音算法</button>
+          <button onclick="call('/api/vqe/ai_record/get?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">读取采集录音算法</button>
+          <button onclick="postVqe('/api/vqe/ai_talk/set')">设置采集通话算法</button>
+          <button onclick="call('/api/vqe/ai_talk/get?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">读取采集通话算法</button>
+          <button onclick="postVqe('/api/vqe/ai_talk_v2/set')">设置通话算法二代</button>
+          <button onclick="call('/api/vqe/ai_talk_v2/get?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">读取通话算法二代</button>
         </div>
         <div class="row">
-          <button onclick="call('/api/vqe/ai/enable?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">enable AI VQE</button>
-          <button onclick="call('/api/vqe/ai/disable?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">disable AI VQE</button>
-          <button onclick="postVqe('/api/vqe/ao/set')">set AO VQE</button>
-          <button onclick="call('/api/vqe/ao/get?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">get AO VQE</button>
-          <button onclick="call('/api/vqe/ao/enable?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">enable AO VQE</button>
-          <button onclick="call('/api/vqe/ao/disable?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">disable AO VQE</button>
+          <button onclick="call('/api/vqe/ai/enable?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">启用采集算法</button>
+          <button onclick="call('/api/vqe/ai/disable?ai_dev='+v('ai_dev')+'&ai_chn='+v('ai_chn'))">禁用采集算法</button>
+          <button onclick="postVqe('/api/vqe/ao/set')">设置播放算法</button>
+          <button onclick="call('/api/vqe/ao/get?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">读取播放算法</button>
+          <button onclick="call('/api/vqe/ao/enable?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">启用播放算法</button>
+          <button onclick="call('/api/vqe/ao/disable?ao_dev='+v('ao_dev')+'&ao_chn='+v('ao_chn'))">禁用播放算法</button>
         </div>
       </div>
     </div>
@@ -239,12 +239,12 @@ audio{width:100%;margin-top:10px}
   -->
   <section id="acodec">
     <div class="panel">
-      <h2>ACODEC ioctl</h2>
-      <label>ioctl<select id="acodec_name"></select></label>
-      <label>value<input id="acodec_value" value="0"></label>
-      <label>mute<input id="acodec_mute" value="0"></label>
+      <h2>模拟音频编解码器控制</h2>
+      <label>控制项<select id="acodec_name"></select></label>
+      <label>参数值<input id="acodec_value" value="0"></label>
+      <label>静音值<input id="acodec_mute" value="0"></label>
       <div class="row">
-        <button class="primary" onclick="postForm('/api/acodec/ioctl',['acodec_name:name','acodec_value:value','acodec_mute:mute'])">执行 ioctl</button>
+        <button class="primary" onclick="postForm('/api/acodec/ioctl',['acodec_name:name','acodec_value:value','acodec_mute:mute'])">执行控制</button>
       </div>
     </div>
   </section>
@@ -256,7 +256,7 @@ audio{width:100%;margin-top:10px}
   <section id="demo">
     <div class="grid">
       <div class="panel">
-        <h2>麦克风 Demo</h2>
+        <h2>麦克风测试</h2>
         <div class="row">
           <button class="primary" onclick="call('/api/demo/mic/start?input=left')">左麦开始</button>
           <button class="primary" onclick="call('/api/demo/mic/start?input=right')">右麦开始</button>
@@ -268,11 +268,11 @@ audio{width:100%;margin-top:10px}
         <audio id="player" controls></audio>
       </div>
       <div class="panel">
-        <h2>扬声器 Demo</h2>
-        <label>freq<input id="tone_freq" value="1000"></label>
-        <label>duration ms<input id="tone_duration" value="3000"></label>
-        <label>volume %<input id="tone_volume" value="80"></label>
-        <label>wav path<input id="wav_path" value="audio/speaker_voice_16k.wav"></label>
+        <h2>扬声器测试</h2>
+        <label>频率 Hz<input id="tone_freq" value="1000"></label>
+        <label>时长 ms<input id="tone_duration" value="3000"></label>
+        <label>音量百分比<input id="tone_volume" value="80"></label>
+        <label>语音文件路径<input id="wav_path" value="audio/speaker_voice_16k.wav"></label>
         <div class="row">
           <button class="primary" onclick="postForm('/api/demo/speaker/tone',['tone_freq:freq','tone_duration:duration','tone_volume:volume'])">播放频率</button>
           <button onclick="postForm('/api/demo/speaker/file',['wav_path:path'])">播放文件</button>
@@ -289,16 +289,32 @@ audio{width:100%;margin-top:10px}
 </main>
 <script>
 // 页签定义。每个页签对应一个厂商接口族或一个实际录放测试流程。
-const tabDefs=[['state','基础状态'],['ai','AI 麦克风'],['ao','AO 扬声器'],['codec','AENC/ADEC'],['vqe','VQE'],['acodec','ACODEC'],['demo','录放 Demo']];
+const tabDefs=[['state','基础状态'],['ai','麦克风采集'],['ao','扬声器播放'],['codec','编解码'],['vqe','音频算法'],['acodec','模拟编解码器'],['demo','录放测试']];
 
 // 厂商 ot_audio_track_mode 枚举值，AI 和 AO 的 set_track_mode 都使用这组值。
-const tracks=[['0','NORMAL'],['1','BOTH_LEFT'],['2','BOTH_RIGHT'],['3','EXCHANGE'],['4','MIX'],['5','LEFT_MUTE'],['6','RIGHT_MUTE'],['7','BOTH_MUTE']];
+const tracks=[['0','正常输出'],['1','使用左声道'],['2','使用右声道'],['3','左右交换'],['4','左右混合'],['5','左声道静音'],['6','右声道静音'],['7','全部静音']];
 
 // 厂商 ot_payload_type 音频负载类型，用于创建 AENC/ADEC 通道。
-const payloads=[['23','LPCM'],['19','G711A'],['20','G711U'],['21','G726'],['49','ADPCM']];
+const payloads=[['23','线性 PCM'],['19','G711A'],['20','G711U'],['21','G726'],['49','ADPCM']];
 
 // /api/acodec/ioctl 接受的 ACODEC 操作名；后端会把名称映射到对应 ioctl 宏。
-const acodecs=['soft_reset','set_i2s1_fs','set_mixer_mic','set_input_volume','set_output_volume','get_input_volume','get_output_volume','enable_boostl','enable_boostr','set_gain_micl','set_gain_micr','get_gain_micl','get_gain_micr','set_dacl_volume','set_dacr_volume','set_adcl_volume','set_adcr_volume','get_dacl_volume','get_dacr_volume','get_adcl_volume','get_adcr_volume','set_micl_mute','set_micr_mute','set_dacl_mute','set_dacr_mute','set_pd_dacl','set_pd_dacr','set_pd_adcl','set_pd_adcr','set_pd_lineinl','set_pd_lineinr','select_dac_clk','select_adc_clk','select_ana_mclk','dacl_select_track','dacr_select_track','adcl_select_track','adcr_select_track','set_dac_de_emphasis','set_adc_hp_filter','set_i2s1_data_width','dac_soft_mute','dac_soft_unmute','dac_soft_mute_rate','query_status'];
+const acodecs=[
+  ['soft_reset','软复位'],['set_i2s1_fs','设置 I2S1 采样率'],['set_mixer_mic','选择麦克风输入源'],
+  ['set_input_volume','设置总输入音量'],['set_output_volume','设置总输出音量'],['get_input_volume','读取总输入音量'],['get_output_volume','读取总输出音量'],
+  ['enable_boostl','左输入增强开关'],['enable_boostr','右输入增强开关'],['set_gain_micl','设置左麦模拟增益'],['set_gain_micr','设置右麦模拟增益'],
+  ['get_gain_micl','读取左麦模拟增益'],['get_gain_micr','读取右麦模拟增益'],['set_dacl_volume','设置左 DAC 音量'],['set_dacr_volume','设置右 DAC 音量'],
+  ['set_adcl_volume','设置左 ADC 音量'],['set_adcr_volume','设置右 ADC 音量'],['get_dacl_volume','读取左 DAC 音量'],['get_dacr_volume','读取右 DAC 音量'],
+  ['get_adcl_volume','读取左 ADC 音量'],['get_adcr_volume','读取右 ADC 音量'],['set_micl_mute','左麦静音'],['set_micr_mute','右麦静音'],
+  ['set_dacl_mute','左 DAC 静音'],['set_dacr_mute','右 DAC 静音'],['set_pd_dacl','左 DAC 上下电'],['set_pd_dacr','右 DAC 上下电'],
+  ['set_pd_adcl','左 ADC 上下电'],['set_pd_adcr','右 ADC 上下电'],['set_pd_lineinl','左 LineIn 上下电'],['set_pd_lineinr','右 LineIn 上下电'],
+  ['select_dac_clk','选择 DAC 时钟'],['select_adc_clk','选择 ADC 时钟'],['select_ana_mclk','选择模拟主时钟'],
+  ['dacl_select_track','左 DAC 声道选择'],['dacr_select_track','右 DAC 声道选择'],['adcl_select_track','左 ADC 声道选择'],['adcr_select_track','右 ADC 声道选择'],
+  ['set_dac_de_emphasis','设置 DAC 去加重'],['set_adc_hp_filter','设置 ADC 高通滤波'],['set_i2s1_data_width','设置 I2S1 位宽'],
+  ['dac_soft_mute','DAC 软静音'],['dac_soft_unmute','DAC 软取消静音'],['dac_soft_mute_rate','DAC 软静音速率'],['query_status','查询状态']
+];
+const stateNames={audio_initialized:'音频已初始化',ai_enabled:'采集设备已启用',ai_chn_enabled:'采集通道已启用',ao_enabled:'播放设备已启用',ao_chn_enabled:'播放通道已启用',recording:'正在录音',playing:'正在播放',record_input:'录音输入',left_saved:'左麦已保存',right_saved:'右麦已保存',record_frames:'录音帧数',record_bytes:'录音字节数',play_frames:'播放帧数',play_bytes:'播放字节数',last_record_error:'最后录音错误码',last_record_error_text:'最后录音错误',sample_rate:'采样率',bits:'位宽',frame_samples:'每帧采样点'};
+const fieldNames={ok:'执行结果',error:'错误信息',ret:'返回码',errno:'系统错误码',strerror:'系统错误说明',input:'录音输入',name:'控制项',value:'参数值',clk_select:'时钟源',sample_rate:'采样率',bit_width:'位宽',work_mode:'工作模式',snd_mode:'声道模式',expand_flag:'扩展标志',frame_num:'缓存帧数',point_num_per_frame:'每帧采样点',chn_cnt:'通道数量',clk_share:'时钟共享',i2s_type:'I2S 类型',mode:'模式',raw_frame_enable:'原始帧输出',usr_frame_depth:'用户帧深度',track_mode:'声道映射',gain:'增益',fd:'文件描述符',chn_total_num:'通道总数',chn_free_num:'空闲通道数',chn_busy_num:'忙碌通道数',delay_ms:'延迟毫秒',volume_db:'输出音量 dB',source:'数据来源',enable:'开关',stream_phys_addr:'码流物理地址',stream_size:'码流大小',frame_num:'帧数',frame_size:'帧大小',left_byte:'剩余字节',open_mask:'算法开关掩码',work_sample_rate:'工作采样率'};
+const valueNames={true:'是',false:'否',left:'左麦',right:'右麦',stereo:'双声道',cached:'缓存值'};
 
 // 简短 DOM 工具函数，让 HTML 控件里的事件处理表达式保持可读。
 function $(id){return document.getElementById(id)}
@@ -307,30 +323,33 @@ function opts(id,arr){$(id).innerHTML=arr.map(x=>`<option value="${x[0]}">${x[1]
 
 // 渲染 AI/AO 共用的 ot_aio_attr 参数表单。
 function aioFields(prefix){return `
-<label>${prefix}_sample_rate<select id="${prefix}_sample_rate"><option>16000</option><option>8000</option><option>12000</option><option>24000</option><option>32000</option><option>44100</option><option>48000</option></select></label>
-<label>${prefix}_bit_width<select id="${prefix}_bit_width"><option value="16">16</option><option value="8">8</option><option value="24">24</option></select></label>
-<label>${prefix}_work_mode<input id="${prefix}_work_mode" value="0"></label>
-<label>${prefix}_snd_mode<select id="${prefix}_snd_mode"><option value="0">MONO</option><option value="1">STEREO</option></select></label>
-<label>${prefix}_expand_flag<input id="${prefix}_expand_flag" value="0"></label>
-<label>${prefix}_frame_num<input id="${prefix}_frame_num" value="10"></label>
-<label>${prefix}_point_num_per_frame<input id="${prefix}_point_num_per_frame" value="320"></label>
-<label>${prefix}_chn_cnt<input id="${prefix}_chn_cnt" value="1"></label>
-<label>${prefix}_clk_share<input id="${prefix}_clk_share" value="0"></label>
-<label>${prefix}_i2s_type<input id="${prefix}_i2s_type" value="0"></label>`}
+<label>采样率<select id="${prefix}_sample_rate"><option>16000</option><option>8000</option><option>12000</option><option>24000</option><option>32000</option><option>44100</option><option>48000</option></select></label>
+<label>位宽<select id="${prefix}_bit_width"><option value="16">16 位</option><option value="8">8 位</option><option value="24">24 位</option></select></label>
+<label>工作模式<input id="${prefix}_work_mode" value="0"></label>
+<label>声道模式<select id="${prefix}_snd_mode"><option value="0">单声道</option><option value="1">双声道</option></select></label>
+<label>扩展标志<input id="${prefix}_expand_flag" value="0"></label>
+<label>缓存帧数<input id="${prefix}_frame_num" value="10"></label>
+<label>每帧采样点<input id="${prefix}_point_num_per_frame" value="320"></label>
+<label>通道数量<input id="${prefix}_chn_cnt" value="1"></label>
+<label>时钟共享<input id="${prefix}_clk_share" value="0"></label>
+<label>I2S 类型<input id="${prefix}_i2s_type" value="0"></label>`}
 function init(){
   // 页面加载时填充动态下拉框，然后读取一次后端状态。
   $('tabs').innerHTML=tabDefs.map((t,i)=>`<button class="${i?'':'primary'}" onclick="tab('${t[0]}',this)">${t[1]}</button>`).join('');
   $('ai-aio').innerHTML=aioFields('ai'); $('ao-aio').innerHTML=aioFields('ao');
   opts('ai_track_mode',tracks); opts('ao_track_mode',tracks); opts('aenc_type',payloads); opts('adec_type',payloads);
-  $('acodec_name').innerHTML=acodecs.map(x=>`<option>${x}</option>`).join('');
+  $('acodec_name').innerHTML=acodecs.map(x=>`<option value="${x[0]}">${x[1]}</option>`).join('');
   refreshState();
 }
 
 // 切换当前页签，并同步高亮页签按钮。
 function tab(id,btn){document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));$(id).classList.add('active');document.querySelectorAll('nav button').forEach(b=>b.classList.remove('primary'));btn.classList.add('primary')}
 
-// 调用 API，并显示原始 HTTP 状态和响应体，便于查看厂商接口返回细节。
-async function call(url,opt={}){let r=await fetch(url,opt);let text=await r.text();$('log').textContent=`${opt.method||'GET'} ${url}\nHTTP ${r.status}\n${text}`;refreshState(false);return {r,text}}
+// 把接口 JSON 转成中文字段展示；解析失败时保留原始文本，方便定位 HTTP 或后端异常。
+function showResult(method,url,status,text){let out=`请求方法：${method}\n请求地址：${url}\nHTTP 状态：${status}\n`;try{let j=JSON.parse(text);out+=Object.entries(j).map(([k,v])=>`${fieldNames[k]||stateNames[k]||k}：${valueNames[String(v)]||v}`).join('\n')}catch(e){out+=text}$('log').textContent=out}
+
+// 调用 API，并显示中文 HTTP 状态和响应体；厂商返回字段会映射为中文名称。
+async function call(url,opt={}){let r=await fetch(url,opt);let text=await r.text();showResult(opt.method||'GET',url,r.status,text);refreshState(false);return {r,text}}
 
 // 根据输入框 ID 生成 application/x-www-form-urlencoded 请求体。
 function body(ids){let p=new URLSearchParams();ids.forEach(x=>{let [id,name]=x.split(':');p.set(name||id,$(id).value)});return p}
@@ -345,7 +364,7 @@ function postAio(url,prefix){let ids=['sample_rate','bit_width','work_mode','snd
 function postVqe(url){postForm(url,['ai_dev','ai_chn','ao_dev','ao_chn','open_mask','work_sample_rate','frame_sample','work_state','in_chn_num','out_chn_num','hpf_freq'])}
 
 // 刷新 demo 进程状态；硬件读回仍然通过各模块自己的 get_* 按钮完成。
-async function refreshState(log=true){let r=await fetch('/api/state');let j=await r.json();$('state-box').innerHTML=Object.entries(j).filter(x=>x[0]!='ok').map(x=>`<div class="kv"><b>${x[0]}</b>${x[1]}</div>`).join('');if(log)$('log').textContent=JSON.stringify(j,null,2)}
+async function refreshState(log=true){let r=await fetch('/api/state');let j=await r.json();$('state-box').innerHTML=Object.entries(j).filter(x=>x[0]!='ok').map(x=>`<div class="kv"><b>${stateNames[x[0]]||x[0]}</b>${valueNames[String(x[1])]||x[1]}</div>`).join('');if(log)showResult('GET','/api/state',r.status,JSON.stringify(j))}
 
 // 打开后端生成的 WAV 下载地址，同时把它加载到页面 audio 控件里。
 function downloadWav(input){let url='/api/demo/mic/download?input='+input; $('player').src=url; window.open(url,'_blank')}
