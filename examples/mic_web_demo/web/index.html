@@ -1,20 +1,167 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>左右麦克风录音</title>
-<style>body{font:16px system-ui,sans-serif;background:#f4f6fa;color:#182438;margin:0;padding:24px}main{max-width:960px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}section{background:white;border:1px solid #dbe2ec;border-radius:14px;padding:24px;margin-bottom:20px}.buttons{display:flex;flex-wrap:wrap;gap:10px}button,a.download{font:inherit;border:0;border-radius:8px;background:#245ad8;color:white;padding:11px 16px;cursor:pointer;text-decoration:none}button.stop{background:#bf303b}button:disabled{opacity:.4;cursor:default}audio{width:100%;margin-top:20px}.status{color:#506176;min-height:24px}pre{white-space:pre-wrap;overflow-wrap:anywhere}h1{margin-bottom:8px}.hint{color:#506176;margin-bottom:24px}</style></head>
-<body><main><h1>左右麦克风录音</h1><p class="hint">左右麦克风分别录音、分别保存。同一时间录制一路；停止后可播放或下载 WAV 文件。</p><div class="grid" id="cards"></div>
-<section><h2>设备操作</h2><div class="buttons"><button id="speaker">播放扬声器测试音</button><button id="refresh">刷新状态</button></div><pre id="log" role="status"></pre></section></main>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>左右麦克风录音</title>
+<style>
+body{font:16px system-ui,sans-serif;background:#f4f6fa;color:#182438;margin:0;padding:24px}
+main{max-width:960px;margin:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+section{background:white;border:1px solid #dbe2ec;border-radius:8px;padding:24px;margin-bottom:20px}
+.buttons{display:flex;flex-wrap:wrap;gap:10px}
+button,a.download{font:inherit;border:0;border-radius:8px;background:#245ad8;color:white;padding:11px 16px;cursor:pointer;text-decoration:none}
+button.stop{background:#bf303b}
+button:disabled{opacity:.4;cursor:default}
+audio{width:100%;margin-top:20px}
+.status{color:#506176;min-height:24px}
+pre{white-space:pre-wrap;overflow-wrap:anywhere}
+h1{margin-bottom:8px}
+.hint{color:#506176;margin-bottom:24px}
+.controls{display:grid;gap:18px}
+.control{display:grid;grid-template-columns:150px 1fr 96px;gap:14px;align-items:center}
+.control input{width:100%}
+.value{text-align:right;color:#506176;font-variant-numeric:tabular-nums}
+@media(max-width:640px){.control{grid-template-columns:1fr}.value{text-align:left}}
+</style>
+</head>
+<body>
+<main>
+<h1>左右麦克风录音</h1>
+<p class="hint">左右麦克风分别录音、分别保存。同一时间录制一路；停止后可播放或下载 WAV 文件。</p>
+
+<section>
+<h2>录音调节</h2>
+<div class="controls">
+<label class="control">
+<span>麦克风增益</span>
+<input id="mic-gain" type="range" min="0" max="15" step="1">
+<span class="value" id="mic-gain-value">-</span>
+</label>
+<label class="control">
+<span>录音音量</span>
+<input id="record-volume" type="range" min="0" max="100" step="1">
+<span class="value" id="record-volume-value">-</span>
+</label>
+<label class="control">
+<span>Codec 输入音量</span>
+<input id="input-db" type="range" min="0" max="80" step="1">
+<span class="value" id="input-db-value">-</span>
+</label>
+</div>
+</section>
+
+<div class="grid" id="cards"></div>
+
+<section>
+<h2>设备操作</h2>
+<div class="buttons">
+<button id="speaker">播放扬声器测试音</button>
+<button id="refresh">刷新状态</button>
+</div>
+<pre id="log" role="status"></pre>
+</section>
+</main>
+
 <script>
-const $=id=>document.getElementById(id), sides=['left','right'];let active=null,busy=false;const saved={left:false,right:false};
-for(const side of sides){const name=side==='left'?'左麦 MIC1':'右麦 MIC2';$('cards').insertAdjacentHTML('beforeend',`<section><h2>${name}</h2><p class="status" id="${side}-status">未录音</p><div class="buttons"><button id="${side}-start">开始录音</button><button class="stop" id="${side}-stop" disabled>停止录音</button><button id="${side}-play" disabled>播放录音</button><button id="${side}-download" disabled>下载录音</button></div><audio id="${side}-audio" controls preload="none"></audio></section>`)}
+const $=id=>document.getElementById(id), sides=['left','right'];
+let active=null,busy=false,settingsTimer=null;
+const saved={left:false,right:false};
+const settings={gain:15,volume:30,inputDb:80};
+
+for(const side of sides){
+  const name=side==='left'?'左麦 MIC1':'右麦 MIC2';
+  $('cards').insertAdjacentHTML('beforeend',`<section><h2>${name}</h2><p class="status" id="${side}-status">未录音</p><div class="buttons"><button id="${side}-start">开始录音</button><button class="stop" id="${side}-stop" disabled>停止录音</button><button id="${side}-play" disabled>播放录音</button><button id="${side}-download" disabled>下载录音</button></div><audio id="${side}-audio" controls preload="none"></audio></section>`);
+}
+
 function log(t){$('log').textContent=`${new Date().toLocaleTimeString()} ${t}`}
-function update(){for(const s of sides){$(s+'-start').disabled=busy||active!==null;$(s+'-stop').disabled=busy||active!==s;$(s+'-play').disabled=busy||!saved[s];$(s+'-download').disabled=busy||!saved[s];$(s+'-status').textContent=active===s?'正在录音…':saved[s]?'录音已保存，可播放或下载':'未录音'}$('speaker').disabled=busy||active!==null}
-async function api(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error(await r.text());return r.json()}
-async function sync(){const r=await api('/api/status');active=r.recording?r.input:null;saved.left=r.left_saved;saved.right=r.right_saved;update()}
-async function action(fn){if(busy)return;busy=true;update();try{await fn()}catch(e){log(e.message);try{await sync()}catch(_){}}finally{busy=false;update()}}
-for(const side of sides){const url=`/api/long_record/download?input=${side}`;
-$(side+'-start').onclick=()=>action(async()=>{for(const s of sides)$(s+'-audio').pause();await api(`/api/long_record/start?input=${side}`);active=side;log(`${side==='left'?'左麦':'右麦'}开始录音`)});
-$(side+'-stop').onclick=()=>action(async()=>{const r=await api(`/api/long_record/stop?input=${side}`);active=null;saved[side]=true;$(side+'-audio').src=url+'&v='+Date.now();log(`已保存 ${(r.duration_ms/1000).toFixed(1)} 秒，${r.bytes} 字节`)});
-$(side+'-play').onclick=()=>{for(const s of sides)if(s!==side)$(s+'-audio').pause();const player=$(side+'-audio');if(!player.src)player.src=url+'&v='+Date.now();player.play().catch(e=>log(e.message))};
-$(side+'-download').onclick=()=>{const a=document.createElement('a');a.href=url;a.download=`mic-${side}.wav`;a.click()};}
-$('refresh').onclick=()=>action(sync);$('speaker').onclick=()=>action(async()=>{await api('/api/play');log('扬声器测试完成')});sync().catch(e=>log(e.message));
-</script></body></html>
+function updateControls(){
+  $('mic-gain').value=settings.gain;
+  $('record-volume').value=settings.volume;
+  $('input-db').value=settings.inputDb;
+  $('mic-gain-value').textContent=`${settings.gain}`;
+  $('record-volume-value').textContent=`${settings.volume}%`;
+  $('input-db-value').textContent=`${settings.inputDb} dB`;
+}
+function update(){
+  for(const s of sides){
+    $(s+'-start').disabled=busy||active!==null;
+    $(s+'-stop').disabled=busy||active!==s;
+    $(s+'-play').disabled=busy||!saved[s];
+    $(s+'-download').disabled=busy||!saved[s];
+    $(s+'-status').textContent=active===s?'正在录音...':saved[s]?'录音已保存，可播放或下载':'未录音';
+  }
+  $('speaker').disabled=busy||active!==null;
+}
+async function api(url){
+  const r=await fetch(url,{cache:'no-store'});
+  if(!r.ok)throw new Error(await r.text());
+  return r.json();
+}
+async function sync(){
+  const r=await api('/api/status');
+  active=r.recording?r.input:null;
+  saved.left=r.left_saved;
+  saved.right=r.right_saved;
+  settings.gain=r.mic_gain_request;
+  settings.volume=r.record_volume;
+  settings.inputDb=r.mic_input_volume_db;
+  updateControls();
+  update();
+}
+async function action(fn){
+  if(busy)return;
+  busy=true;update();
+  try{await fn()}catch(e){log(e.message);try{await sync()}catch(_){}}
+  finally{busy=false;update()}
+}
+async function applySettings(){
+  const r=await api(`/api/mic_settings?gain=${settings.gain}&volume=${settings.volume}&input_db=${settings.inputDb}`);
+  settings.gain=r.mic_gain_request;
+  settings.volume=r.record_volume;
+  settings.inputDb=r.mic_input_volume_db;
+  updateControls();
+  log(`增益 ${r.mic_gain_left}/${r.mic_gain_right}，录音音量 ${r.record_volume}%`);
+}
+function scheduleSettings(){
+  clearTimeout(settingsTimer);
+  settingsTimer=setTimeout(()=>action(applySettings),180);
+}
+$('mic-gain').oninput=e=>{settings.gain=Number(e.target.value);updateControls();scheduleSettings()};
+$('record-volume').oninput=e=>{settings.volume=Number(e.target.value);updateControls();scheduleSettings()};
+$('input-db').oninput=e=>{settings.inputDb=Number(e.target.value);updateControls();scheduleSettings()};
+
+for(const side of sides){
+  const url=`/api/long_record/download?input=${side}`;
+  $(side+'-start').onclick=()=>action(async()=>{
+    for(const s of sides)$(s+'-audio').pause();
+    await api(`/api/long_record/start?input=${side}`);
+    active=side;
+    log(`${side==='left'?'左麦':'右麦'}开始录音`);
+  });
+  $(side+'-stop').onclick=()=>action(async()=>{
+    const r=await api(`/api/long_record/stop?input=${side}`);
+    active=null;saved[side]=true;
+    $(side+'-audio').src=url+'&v='+Date.now();
+    log(`已保存 ${(r.duration_ms/1000).toFixed(1)} 秒，${r.bytes} 字节`);
+  });
+  $(side+'-play').onclick=()=>{
+    for(const s of sides)if(s!==side)$(s+'-audio').pause();
+    const player=$(side+'-audio');
+    if(!player.src)player.src=url+'&v='+Date.now();
+    player.play().catch(e=>log(e.message));
+  };
+  $(side+'-download').onclick=()=>{
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`mic-${side}.wav`;
+    a.click();
+  };
+}
+
+$('refresh').onclick=()=>action(sync);
+$('speaker').onclick=()=>action(async()=>{await api('/api/play');log('扬声器测试完成')});
+sync().catch(e=>log(e.message));
+</script>
+</body>
+</html>

@@ -1,11 +1,14 @@
 #include "ehal_audio.h"
+#include "chip/hi3516cv610/ot_acodec.h"
 
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -27,6 +30,7 @@
 namespace {
 
 volatile sig_atomic_t g_stop = 0;
+constexpr int kSafeStartupInputVolume = 30;
 
 struct Config {
     int port = 8091;
@@ -191,15 +195,108 @@ bool read_binary_file(const std::string &path, std::vector<uint8_t> *data)
     return file.good() || file.eof();
 }
 
-bool configure_official_mic_gain()
+int clamp_int(int value, int min_value, int max_value)
 {
-    const int ret = system("/root/mic_gain_demo/bin/mic_gain_demo >/tmp/mic_web_demo/gain.log 2>&1");
-    std::fprintf(stderr, "[mic_web] mic_gain_demo ret=%d\n", ret);
-    std::fflush(stderr);
-    return ret == 0;
+    return std::max(min_value, std::min(max_value, value));
 }
 
-bool capture_with_official_sample(int input, int seconds, std::vector<uint8_t> *pcm)
+int open_acodec_control()
+{
+    struct stat codec_stat{};
+    if (stat("/dev/acodec", &codec_stat) == 0) {
+        DIR *fds = opendir("/proc/self/fd");
+        if (fds != nullptr) {
+            while (struct dirent *entry = readdir(fds)) {
+                char *end = nullptr;
+                long candidate = std::strtol(entry->d_name, &end, 10);
+                if (end == entry->d_name || *end != '\0' || candidate < 0) continue;
+                struct stat fd_stat{};
+                int fd = static_cast<int>(candidate);
+                if (fstat(fd, &fd_stat) == 0 && S_ISCHR(fd_stat.st_mode) &&
+                    fd_stat.st_rdev == codec_stat.st_rdev &&
+                    (fcntl(fd, F_GETFL) & O_ACCMODE) == O_RDWR) {
+                    int duplicate = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+                    if (duplicate >= 0) {
+                        closedir(fds);
+                        return duplicate;
+                    }
+                }
+            }
+            closedir(fds);
+        }
+    }
+    return open("/dev/acodec", O_RDWR | O_CLOEXEC);
+}
+
+struct MicGainStatus {
+    int requested_gain = 15;
+    int left_gain = -1;
+    int right_gain = -1;
+    int input_volume_db = -1;
+};
+
+bool set_mic_gain_compat(int fd, unsigned long request, int requested, int *actual)
+{
+    for (td_u32 gain = static_cast<td_u32>(requested);; --gain) {
+        if (ioctl(fd, request, &gain) == 0) {
+            *actual = static_cast<int>(gain);
+            return true;
+        }
+        if (gain == 0U) break;
+    }
+    return false;
+}
+
+bool apply_mic_hardware_settings(int mic_gain,
+                                 int input_volume_db,
+                                 MicGainStatus *status)
+{
+    int fd = open_acodec_control();
+    if (fd < 0) {
+        std::fprintf(stderr, "[mic_web] open /dev/acodec failed: %s\n", std::strerror(errno));
+        return false;
+    }
+
+    bool ok = true;
+    td_u32 boost_enable = 1U;
+    ok = (ioctl(fd, OT_ACODEC_ENABLE_BOOSTL, &boost_enable) == 0) && ok;
+    ok = (ioctl(fd, OT_ACODEC_ENABLE_BOOSTR, &boost_enable) == 0) && ok;
+
+    int left = -1;
+    int right = -1;
+    ok = set_mic_gain_compat(fd, OT_ACODEC_SET_GAIN_MICL, mic_gain, &left) && ok;
+    ok = set_mic_gain_compat(fd, OT_ACODEC_SET_GAIN_MICR, mic_gain, &right) && ok;
+
+    td_u32 input_db = static_cast<td_u32>(input_volume_db);
+    ok = (ioctl(fd, OT_ACODEC_SET_INPUT_VOLUME, &input_db) == 0) && ok;
+
+    td_u32 readback = 0;
+    if (ioctl(fd, OT_ACODEC_GET_GAIN_MICL, &readback) == 0) left = static_cast<int>(readback);
+    if (ioctl(fd, OT_ACODEC_GET_GAIN_MICR, &readback) == 0) right = static_cast<int>(readback);
+    if (ioctl(fd, OT_ACODEC_GET_INPUT_VOLUME, &readback) == 0) {
+        input_volume_db = static_cast<int>(readback);
+    }
+    close(fd);
+
+    if (status != nullptr) {
+        status->requested_gain = mic_gain;
+        status->left_gain = left;
+        status->right_gain = right;
+        status->input_volume_db = input_volume_db;
+    }
+    std::fprintf(stderr,
+                 "[mic_web] mic hardware settings requested_gain=%d left=%d right=%d input_volume_db=%d ok=%d\n",
+                 mic_gain, left, right, input_volume_db, ok ? 1 : 0);
+    std::fflush(stderr);
+    return ok;
+}
+
+bool capture_with_official_sample(int input,
+                                  int seconds,
+                                  int mic_gain,
+                                  int input_volume_db,
+                                  MicGainStatus *gain_status,
+                                  std::vector<uint8_t> *pcm)
 {
     const char *sample = input == 1 ? "/root/sample_audio_r" : "/root/sample_audio_l";
     const std::string dir = input == 1 ? "/tmp/mic_web_demo/sample_right" :
@@ -207,7 +304,7 @@ bool capture_with_official_sample(int input, int seconds, std::vector<uint8_t> *
     const std::string pcm_path = dir + "/audio_chn0.pcm";
     const std::string log_path = dir + "/sample.log";
     (void)system(("mkdir -p " + dir + " && rm -f " + pcm_path).c_str());
-    if (!configure_official_mic_gain()) return false;
+    if (!apply_mic_hardware_settings(mic_gain, input_volume_db, gain_status)) return false;
 
     int input_pipe[2];
     if (pipe(input_pipe) != 0) return false;
@@ -451,7 +548,7 @@ public:
         audio_config.ao_dev = 0;
         audio_config.aenc_channel = 0;
         audio_config.record_pipeline_name = "audio_record";
-        audio_config.input_volume = input_volume_;
+        audio_config.input_volume = kSafeStartupInputVolume;
         audio_config.output_volume = output_volume_;
         audio_config.playback_pipeline_name =
             enable_playback && codec == EHAL_AUDIO_CODEC_PCM ?
@@ -554,6 +651,8 @@ private:
             handle_stop(fd);
         } else if (path.rfind("/api/volume", 0) == 0) {
             handle_volume(fd, parse_volume(path));
+        } else if (path.rfind("/api/mic_settings", 0) == 0) {
+            handle_mic_settings(fd, path);
         } else {
             send_file(fd, path.size() > 1 ? path.substr(1) : "index.html");
         }
@@ -589,6 +688,12 @@ private:
             << ",\"right_saved\":" << (!saved_paths_[1].empty() ? "true" : "false")
             << ",\"capture_frames\":" << stats.capture_frames
             << ",\"capture_bytes\":" << stats.capture_bytes
+            << ",\"record_volume\":" << input_volume_
+            << ",\"record_volume_db\":" << input_percent_to_db(input_volume_)
+            << ",\"mic_gain_request\":" << mic_gain_
+            << ",\"mic_gain_left\":" << mic_gain_status_.left_gain
+            << ",\"mic_gain_right\":" << mic_gain_status_.right_gain
+            << ",\"mic_input_volume_db\":" << mic_gain_status_.input_volume_db
             << ",\"sample_rate\":48000,\"channels\":1,\"codec\":\""
             << (active_codec_ == EHAL_AUDIO_CODEC_OPUS ? "OPUS" : "PCM") << "\"}";
         send_text(fd, 200, "application/json; charset=utf-8", out.str());
@@ -604,7 +709,9 @@ private:
         }
         if (format == "pcm") {
             std::vector<uint8_t> pcm;
-            if (!capture_with_official_sample(active_input_, seconds, &pcm)) {
+            if (!capture_with_official_sample(active_input_, seconds,
+                                              mic_gain_, mic_input_volume_db_,
+                                              &mic_gain_status_, &pcm)) {
                 send_text(fd, 500, "text/plain; charset=utf-8",
                           "official microphone capture failed\n");
                 return;
@@ -798,10 +905,28 @@ private:
     {
         size_t pos = path.find("value=");
         if (pos == std::string::npos) {
-            return 100;
+            return 30;
         }
         int volume = std::atoi(path.c_str() + pos + 6U);
-        return std::max(0, std::min(100, volume));
+        return clamp_int(volume, 0, 100);
+    }
+
+    static int parse_query_int(const std::string &path,
+                               const char *name,
+                               int fallback,
+                               int min_value,
+                               int max_value)
+    {
+        std::string key = std::string(name) + "=";
+        size_t pos = path.find(key);
+        if (pos == std::string::npos) return fallback;
+        int value = std::atoi(path.c_str() + pos + key.size());
+        return clamp_int(value, min_value, max_value);
+    }
+
+    static int input_percent_to_db(int volume)
+    {
+        return 20 + (clamp_int(volume, 0, 100) * 60 + 50) / 100;
     }
 
     void handle_play(int fd)
@@ -925,22 +1050,43 @@ private:
     void handle_volume(int fd, int volume)
     {
         input_volume_ = volume;
-        output_volume_ = volume;
         int ret = EHAL_OK;
         if (running_) {
             if (record_enabled_) {
                 ret = ehal_audio_set_input_volume(audio_, volume);
             }
-            if (ret == EHAL_OK && playback_enabled_) {
-                ret = ehal_audio_set_output_volume(audio_, volume);
-            }
         }
         send_text(fd, ret == EHAL_OK ? 200 : 500,
                   "application/json; charset=utf-8",
                   ret == EHAL_OK ?
-                      std::string("{\"ok\":true,\"volume\":") +
-                          std::to_string(volume) + "}\n" :
+                      std::string("{\"ok\":true,\"record_volume\":") +
+                          std::to_string(volume) + ",\"record_volume_db\":" +
+                          std::to_string(input_percent_to_db(volume)) + "}\n" :
                       "{\"ok\":false}\n");
+    }
+
+    void handle_mic_settings(int fd, const std::string &path)
+    {
+        mic_gain_ = parse_query_int(path, "gain", mic_gain_, 0, 15);
+        input_volume_ = parse_query_int(path, "volume", input_volume_, 0, 100);
+        mic_input_volume_db_ = parse_query_int(path, "input_db", mic_input_volume_db_, 0, 80);
+
+        int ret = EHAL_OK;
+        bool hardware_ok = true;
+        if (running_ && record_enabled_) {
+            ret = ehal_audio_set_input_volume(audio_, input_volume_);
+            hardware_ok = apply_mic_hardware_settings(mic_gain_, mic_input_volume_db_, &mic_gain_status_);
+        }
+        const bool ok = ret == EHAL_OK && hardware_ok;
+        std::ostringstream out;
+        out << "{\"ok\":" << (ok ? "true" : "false")
+            << ",\"record_volume\":" << input_volume_
+            << ",\"record_volume_db\":" << input_percent_to_db(input_volume_)
+            << ",\"mic_gain_request\":" << mic_gain_
+            << ",\"mic_gain_left\":" << mic_gain_status_.left_gain
+            << ",\"mic_gain_right\":" << mic_gain_status_.right_gain
+            << ",\"mic_input_volume_db\":" << mic_gain_status_.input_volume_db << "}\n";
+        send_text(fd, ok ? 200 : 500, "application/json; charset=utf-8", out.str());
     }
 
     int start_audio()
@@ -964,6 +1110,7 @@ private:
                 int volume_ret = ehal_audio_set_input_volume(audio_, input_volume_);
                 std::fprintf(stderr, "[mic_web] ehal_audio_set_input_volume volume=%d ret=%d (%s)\n",
                              input_volume_, volume_ret, ehal_audio_error_string(volume_ret));
+                (void)apply_mic_hardware_settings(mic_gain_, mic_input_volume_db_, &mic_gain_status_);
             }
             if (playback_enabled_) {
                 int volume_ret = ehal_audio_set_output_volume(audio_, output_volume_);
@@ -1012,6 +1159,9 @@ private:
     // hardware gain directly, so leave HAL input volume at its safe default.
     int input_volume_ = 30;
     int output_volume_ = 80;
+    int mic_gain_ = 15;
+    int mic_input_volume_db_ = 80;
+    MicGainStatus mic_gain_status_{};
     ehal_audio_codec_t active_codec_ = EHAL_AUDIO_CODEC_PCM;
 };
 
