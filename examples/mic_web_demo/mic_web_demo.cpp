@@ -459,7 +459,7 @@ public:
         audio_config.sample_rate = 48000;
         audio_config.channels = 1;
         audio_config.bit_width = 16;
-        audio_config.samples_per_frame = 320;
+        audio_config.samples_per_frame = 960;
         audio_config.codec = codec;
         audio_config.capture_callback = audio_callback;
         audio_config.user_data = &audio_buffer_;
@@ -698,7 +698,7 @@ private:
                                              "/tmp/mic_web_demo/long_left";
         const std::string pcm = dir + "/audio_chn0.pcm";
         (void)system(("mkdir -p " + dir + " && rm -f " + pcm).c_str());
-        if (configure_audio(EHAL_AUDIO_CODEC_PCM, 1, 1, input) != EHAL_OK ||
+        if (configure_audio(EHAL_AUDIO_CODEC_PCM, 1, 0, input) != EHAL_OK ||
             start_audio() != EHAL_OK) {
             send_text(fd, 500, "text/plain", "cannot start selected microphone");
             return;
@@ -1041,6 +1041,7 @@ Config parse_args(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
+    setvbuf(stdout, nullptr, _IOLBF, 0);
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     // A client may close the WAV download immediately after receiving it.
