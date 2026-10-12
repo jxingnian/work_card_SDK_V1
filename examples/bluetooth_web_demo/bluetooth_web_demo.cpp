@@ -377,13 +377,12 @@ private:
             if (i != 0U) {
                 extra << ',';
             }
-            ehal_bt_device_info_t current{};
-            if (ehal_bt_get_device_info(bt_, devices[i].address, &current) == EHAL_OK) {
-                devices[i].paired = current.paired;
-                devices[i].trusted = current.trusted;
-                devices[i].connected = current.connected;
-                devices[i].blocked = current.blocked;
-            }
+            /*
+             * 设备列表接口只输出缓存中的设备，不能在这里逐台调用
+             * bluetoothctl info。某一台设备不可用时，info 会等待超时，
+             * 造成整个网页刷新卡住。用户点击设备后，再通过独立的 info
+             * 接口读取该设备的详细配对状态。
+             */
             extra << "{\"address\":\"" << json_escape(devices[i].address)
                   << "\",\"name\":\"" << json_escape(devices[i].name)
                   << "\",\"alias\":\"" << json_escape(devices[i].alias)
@@ -426,13 +425,9 @@ private:
         if (action == "power") {
             ret = ehal_bt_set_power(bt_, bool_value(value_or(query, "value")));
         } else if (action == "pair_prepare") {
-            std::string command_output;
-            int status = run_command_status(
-                "bluetoothctl --timeout 3 agent NoInputNoOutput; "
-                "bluetoothctl --timeout 3 pairable on",
-                &command_output);
-            ret = status == 0 ? EHAL_OK : EHAL_ERR_RUNTIME;
-            extra = "\"command_output\":\"" + json_escape(command_output) + "\"";
+            /* SDK 内部保持 bluetoothctl agent 进程，避免临时命令退出后代理失效。 */
+            ret = ehal_bt_prepare_pairing(bt_);
+            extra = "\"command_output\":\"persistent pairing agent\"";
         } else if (action == "name" || action == "alias") {
             ret = ehal_bt_set_name(bt_, value_or(query, "value").c_str());
         } else if (action == "pairable") {
@@ -501,22 +496,16 @@ private:
                 ret = EHAL_ERR_PARAM;
                 extra = "\"command_output\":\"audio file is missing or unreadable\"";
             } else {
-                const std::string pid_path = a2dp_pid_path(address);
-                const std::string log_path = a2dp_log_path(address);
-                const std::string status_path = a2dp_status_path(address);
-                const std::string pcm =
-                    "bluealsa:DEV=" + address + ",PROFILE=a2dp,SRV=org.bluealsa";
-                std::string command =
-                    "if [ -s " + shell_quote(pid_path) + " ]; then "
-                    "kill $(cat " + shell_quote(pid_path) + ") 2>/dev/null; fi; "
-                    "rm -f " + shell_quote(log_path) + " " + shell_quote(pid_path) +
-                    " " + shell_quote(status_path) + "; "
-                    "(aplay -D " + shell_quote(pcm) + " " + shell_quote(path) +
-                    " >" + shell_quote(log_path) + " 2>&1; echo $? >" +
-                    shell_quote(status_path) + ") & echo $! >" + shell_quote(pid_path);
-                (void)run_command(command);
-                ret = EHAL_OK;
-                extra = "\"command_output\":\"A2DP playback started\"";
+                /*
+                 * 通过 SDK 的正式接口启动播放，保证网页入口与 SDK 入口使用完全相同的
+                 * BlueALSA A2DP PCM 配置。SDK 会记录播放进程、日志和退出状态，便于网页
+                 * 后续读取真实的播放结果，避免网页和库各自维护两套播放命令。
+                */
+                ret = ehal_bt_a2dp_play_file(bt_, address.c_str(), path.c_str());
+                extra = ret == EHAL_OK ?
+                    "\"command_output\":\"A2DP playback started\"," :
+                    "\"command_output\":\"A2DP playback was not started\",";
+                extra += "\"playback_log\":\"/tmp/ehal_a2dp_sdk.log\"";
             }
         } else if (action == "a2dp_stop") {
             const std::string pid_path = a2dp_pid_path(address);
@@ -559,6 +548,16 @@ private:
             if (action == "avrcp_stop") ret = ehal_bt_avrcp_stop(bt_, address.c_str());
             if (action == "avrcp_next") ret = ehal_bt_avrcp_next(bt_, address.c_str());
             if (action == "avrcp_previous") ret = ehal_bt_avrcp_previous(bt_, address.c_str());
+        }
+        if (action == "pair" || action == "trust" || action == "connect" ||
+            action == "disconnect" || action == "remove" ||
+            action == "block") {
+            /*
+             * 操作完成后立即返回最新设备列表，确保网页显示的是 BlueZ
+             * 已保存的配对、信任和连接状态，而不是操作前的旧缓存。
+             */
+            extra += extra.empty() ? "" : ",";
+            extra += "\"refresh_devices\":true";
         }
         return result_json(ret, extra);
     }

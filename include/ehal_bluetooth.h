@@ -144,6 +144,8 @@ int ehal_bt_set_name(ehal_bluetooth_t *bt, const char *name);
 int ehal_bt_set_alias(ehal_bluetooth_t *bt, const char *alias);
 int ehal_bt_set_pairable(ehal_bluetooth_t *bt, int enabled);
 int ehal_bt_set_discoverable(ehal_bluetooth_t *bt, int enabled);
+/* 注册持续有效的 NoInputNoOutput 配对代理，并打开可配对状态。 */
+int ehal_bt_prepare_pairing(ehal_bluetooth_t *bt);
 
 int ehal_bt_start_scan(ehal_bluetooth_t *bt);
 int ehal_bt_stop_scan(ehal_bluetooth_t *bt);

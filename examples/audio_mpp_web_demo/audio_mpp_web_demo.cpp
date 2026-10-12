@@ -121,6 +121,8 @@ struct AudioState {
 };
 
 AudioState g_state;
+/* 串行化会改变 AI/AO 生命周期的 HTTP API，避免并发请求覆盖 joinable 线程。 */
+std::mutex g_api_op_mu;
 std::mutex g_diag_mu;
 std::string g_last_detail_error;
 
@@ -1099,6 +1101,7 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
         return ret == TD_SUCCESS ? ok_json() : err_json("ss_mpi_audio_init failed", ret);
     }
     if (req.path == "/api/audio/exit") {
+        std::lock_guard<std::mutex> api_lock(g_api_op_mu);
         stop_record_thread();
         stop_play_thread();
         stop_ai();
@@ -1618,6 +1621,7 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
     }
 
     if (req.path == "/api/demo/mic/start") {
+        std::lock_guard<std::mutex> api_lock(g_api_op_mu);
         stop_record_thread();
         std::string input = get_str(q, "input", "left");
         std::string path = input == "right" ? kRightPcm : kLeftPcm;
@@ -1649,7 +1653,9 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
         return ok_json("\"input\":\"" + json_escape(input) + "\"");
     }
     if (req.path == "/api/demo/mic/stop") {
+        std::lock_guard<std::mutex> api_lock(g_api_op_mu);
         stop_record_thread();
+        stop_ai();
         return ok_json();
     }
     if (req.path == "/api/demo/mic/download") {
@@ -1670,6 +1676,7 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
         return "";
     }
     if (req.path == "/api/demo/speaker/tone") {
+        std::lock_guard<std::mutex> api_lock(g_api_op_mu);
         stop_play_thread();
         std::lock_guard<std::mutex> lock(g_state.mu);
         if (g_state.recording) { *code = 409; return err_json("microphone is recording"); }
@@ -1684,6 +1691,7 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
         return ok_json();
     }
     if (req.path == "/api/demo/speaker/file") {
+        std::lock_guard<std::mutex> api_lock(g_api_op_mu);
         stop_play_thread();
         auto wav = read_file_bytes(get_str(q, "path", "audio/speaker_voice_16k.wav"));
         std::vector<uint8_t> pcm;
@@ -1698,7 +1706,9 @@ std::string handle_api(const Request &req, int *code, std::string *content_type,
         return ok_json();
     }
     if (req.path == "/api/demo/speaker/stop") {
+        std::lock_guard<std::mutex> api_lock(g_api_op_mu);
         stop_play_thread();
+        stop_ao();
         return ok_json();
     }
 
