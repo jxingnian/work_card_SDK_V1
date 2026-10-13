@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蓝牙设备管理</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-right: 10px;
+        }
+
+        .btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn.scanning {
+            background: #f56565;
+        }
+
+        .devices {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .section-title {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .device-list {
+            list-style: none;
+        }
+
+        .device-item {
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+
+        .device-item:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .device-item.connected {
+            border-color: #48bb78;
+            background: #f0fff4;
+        }
+
+        .device-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .device-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .device-address {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 4px;
+        }
+
+        .device-badges {
+            display: flex;
+            gap: 8px;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge.paired {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+
+        .badge.connected {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .badge.rssi {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+
+        .device-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 14px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-connect {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-connect:hover {
+            background: #38a169;
+        }
+
+        .btn-disconnect {
+            background: #f56565;
+            color: white;
+        }
+
+        .btn-disconnect:hover {
+            background: #e53e3e;
+        }
+
+        .btn-pair {
+            background: #4299e1;
+            color: white;
+        }
+
+        .btn-pair:hover {
+            background: #3182ce;
+        }
+
+        .btn-remove {
+            background: #ed8936;
+            color: white;
+        }
+
+        .btn-remove:hover {
+            background: #dd6b20;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+
+        .spinner {
+            border: 3px solid #e2e8f0;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .success {
+            background: #c6f6d5;
+            color: #22543d;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔵 蓝牙设备管理</h1>
+            <div class="status" id="status">正在初始化...</div>
+        </div>
+
+        <div class="controls">
+            <button class="btn" id="scanBtn" onclick="toggleScan()">开始扫描</button>
+            <button class="btn" onclick="refreshDevices()">刷新列表</button>
+        </div>
+
+        <div id="errorMsg" class="error"></div>
+        <div id="successMsg" class="success"></div>
+
+        <div class="devices">
+            <div class="section-title">📱 已配对设备</div>
+            <ul class="device-list" id="pairedDevices">
+                <li class="loading">
+                    <div class="spinner"></div>
+                    <div>正在加载设备...</div>
+                </li>
+            </ul>
+        </div>
+
+        <div class="devices" style="margin-top: 20px;">
+            <div class="section-title">🔍 扫描到的设备</div>
+            <ul class="device-list" id="scannedDevices">
+                <li class="empty-state">点击"开始扫描"查找附近的蓝牙设备</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let isScanning = false;
+        let refreshTimer = null;
+
+        // 初始化
+        window.onload = function() {
+            refreshDevices();
+            // 自动刷新设备列表
+            refreshTimer = setInterval(refreshDevices, 3000);
+        };
+
+        // 显示错误消息
+        function showError(msg) {
+            const errorDiv = document.getElementById('errorMsg');
+            errorDiv.textContent = '❌ ' + msg;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        // 显示成功消息
+        function showSuccess(msg) {
+            const successDiv = document.getElementById('successMsg');
+            successDiv.textContent = '✅ ' + msg;
+            successDiv.style.display = 'block';
+            setTimeout(() => {
+                successDiv.style.display = 'none';
+            }, 3000);
+        }
+
+        // 切换扫描状态
+        async function toggleScan() {
+            const btn = document.getElementById('scanBtn');
+            const action = isScanning ? 'stop_scan' : 'start_scan';
+
+            try {
+                const response = await fetch(`/api/action?action=${action}`);
+                const data = await response.json();
+
+                if (data.ok) {
+                    isScanning = !isScanning;
+                    btn.textContent = isScanning ? '停止扫描' : '开始扫描';
+                    btn.classList.toggle('scanning', isScanning);
+                    document.getElementById('status').textContent = isScanning ?
+                        '正在扫描附近的蓝牙设备...' : '扫描已停止';
+
+                    if (isScanning) {
+                        showSuccess('开始扫描蓝牙设备');
+                    }
+                } else {
+                    showError('操作失败: ' + data.error);
+                }
+            } catch (error) {
+                showError('网络错误: ' + error.message);
+            }
+        }
+
+        // 刷新设备列表
+        async function refreshDevices() {
+            try {
+                const response = await fetch('/api/devices');
+                const data = await response.json();
+
+                if (data.ok && data.devices) {
+                    const paired = data.devices.filter(d => d.paired);
+                    const scanned = data.devices.filter(d => !d.paired);
+
+                    renderDevices('pairedDevices', paired, true);
+                    renderDevices('scannedDevices', scanned, false);
+
+                    document.getElementById('status').textContent =
+                        `找到 ${paired.length} 个已配对设备, ${scanned.length} 个扫描设备`;
+                } else {
+                    showError('获取设备列表失败');
+                }
+            } catch (error) {
+                console.error('刷新设备失败:', error);
+            }
+        }
+
+        // 渲染设备列表
+        function renderDevices(containerId, devices, isPaired) {
+            const container = document.getElementById(containerId);
+
+            if (devices.length === 0) {
+                container.innerHTML = `
+                    <li class="empty-state">
+                        ${isPaired ? '暂无已配对设备' : '暂无扫描到的设备'}
+                    </li>
+                `;
+                return;
+            }
+
+            container.innerHTML = devices.map(device => {
+                const name = device.name || '未知设备';
+                const isConnected = device.connected === 1;
+
+                let actions = '';
+                if (isPaired) {
+                    if (isConnected) {
+                        actions = `<button class="btn-small btn-disconnect" onclick="disconnect('${device.address}')">断开</button>`;
+                    } else {
+                        actions = `<button class="btn-small btn-connect" onclick="connect('${device.address}')">连接</button>`;
+                    }
+                    actions += `<button class="btn-small btn-remove" onclick="remove('${device.address}')">取消配对</button>`;
+                } else {
+                    actions = `<button class="btn-small btn-pair" onclick="pairAndConnect('${device.address}')">配对并连接</button>`;
+                }
+
+                return `
+                    <li class="device-item ${isConnected ? 'connected' : ''}">
+                        <div class="device-info">
+                            <div>
+                                <div class="device-name">${escapeHtml(name)}</div>
+                                <div class="device-address">${device.address}</div>
+                            </div>
+                            <div class="device-badges">
+                                ${device.paired ? '<span class="badge paired">已配对</span>' : ''}
+                                ${isConnected ? '<span class="badge connected">已连接</span>' : ''}
+                                ${device.rssi !== 0 ? `<span class="badge rssi">信号 ${device.rssi}dBm</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="device-actions">
+                            ${actions}
+                        </div>
+                    </li>
+                `;
+            }).join('');
+        }
+
+        // 配对并连接
+        async function pairAndConnect(address) {
+            showSuccess('正在配对设备...');
+            try {
+                const response = await fetch(`/api/action?action=pair_and_connect&address=${address}`);
+                const data = await response.json();
+
+                if (data.ok) {
+                    showSuccess('配对并连接成功！');
+                    setTimeout(refreshDevices, 1000);
+                } else {
+                    showError('配对失败: ' + data.error);
+                }
+            } catch (error) {
+                showError('操作失败: ' + error.message);
+            }
+        }
+
+        // 连接设备
+        async function connect(address) {
+            showSuccess('正在连接...');
+            try {
+                const response = await fetch(`/api/action?action=connect&address=${address}`);
+                const data = await response.json();
+
+                if (data.ok) {
+                    showSuccess('连接成功！');
+                    setTimeout(refreshDevices, 1000);
+                } else {
+                    showError('连接失败: ' + data.error);
+                }
+            } catch (error) {
+                showError('操作失败: ' + error.message);
+            }
+        }
+
+        // 断开设备
+        async function disconnect(address) {
+            try {
+                const response = await fetch(`/api/action?action=disconnect&address=${address}`);
+                const data = await response.json();
+
+                if (data.ok) {
+                    showSuccess('已断开连接');
+                    setTimeout(refreshDevices, 1000);
+                } else {
+                    showError('断开失败: ' + data.error);
+                }
+            } catch (error) {
+                showError('操作失败: ' + error.message);
+            }
+        }
+
+        // 移除设备（取消配对）
+        async function remove(address) {
+            if (!confirm('确定要取消配对此设备吗？')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/action?action=remove&address=${address}`);
+                const data = await response.json();
+
+                if (data.ok) {
+                    showSuccess('已取消配对');
+                    setTimeout(refreshDevices, 1000);
+                } else {
+                    showError('操作失败: ' + data.error);
+                }
+            } catch (error) {
+                showError('操作失败: ' + error.message);
+            }
+        }
+
+        // HTML转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

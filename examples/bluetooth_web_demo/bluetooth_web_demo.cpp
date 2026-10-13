@@ -270,6 +270,12 @@ public:
         if (ret == EHAL_OK) {
             ret = ehal_bt_start(bt_);
         }
+        if (ret == EHAL_OK) {
+            /*
+             * Demo 启动即进入手机式后台模式，自动持续刷新附近设备。
+             */
+            ret = ehal_bt_start_scan(bt_);
+        }
         if (ret != EHAL_OK) {
             std::fprintf(stderr, "bluetooth SDK init failed: %s (%d)\n",
                          ehal_bt_error_string(ret), ret);
@@ -318,6 +324,32 @@ public:
     }
 
 private:
+    std::string device_array_json(const ehal_bt_device_info_t *devices,
+                                  uint32_t count,
+                                  bool paired,
+                                  bool *first)
+    {
+        std::ostringstream out;
+        for (uint32_t i = 0U; i < count && i < 64U; ++i) {
+            if ((devices[i].paired != 0) != paired) {
+                continue;
+            }
+            if (!*first) {
+                out << ',';
+            }
+            *first = false;
+            out << "{\"address\":\"" << json_escape(devices[i].address)
+                << "\",\"name\":\"" << json_escape(devices[i].name)
+                << "\",\"alias\":\"" << json_escape(devices[i].alias)
+                << "\",\"rssi\":" << devices[i].rssi
+                << ",\"paired\":" << devices[i].paired
+                << ",\"trusted\":" << devices[i].trusted
+                << ",\"connected\":" << devices[i].connected
+                << ",\"blocked\":" << devices[i].blocked << '}';
+        }
+        return out.str();
+    }
+
     std::string last_output() const
     {
         char output[8192] = {};
@@ -393,6 +425,17 @@ private:
                   << ",\"blocked\":" << devices[i].blocked << '}';
         }
         extra << "],\"count\":" << count;
+        /*
+         * 将已配对设备和实时扫描发现设备分成两个数组，避免网页把
+         * 扫描到的临时设备误认为已配对设备。
+         */
+        bool first_paired = true;
+        bool first_scanned = true;
+        extra << ",\"paired_devices\":["
+              << device_array_json(devices, count, true, &first_paired)
+              << "],\"scanned_devices\":["
+              << device_array_json(devices, count, false, &first_scanned)
+              << ']';
         return result_json(ret, extra.str());
     }
 
@@ -442,6 +485,17 @@ private:
             return device_info_json(address);
         } else if (action == "pair") {
             ret = ehal_bt_pair(bt_, address.c_str());
+        } else if (action == "pair_connect") {
+            /*
+             * 点击实时扫描设备时，自动完成配对、信任和连接。
+             */
+            ret = ehal_bt_pair(bt_, address.c_str());
+            if (ret == EHAL_OK) {
+                ret = ehal_bt_set_trusted(bt_, address.c_str(), 1);
+            }
+            if (ret == EHAL_OK) {
+                ret = ehal_bt_connect(bt_, address.c_str());
+            }
         } else if (action == "cancel_pair") {
             ret = ehal_bt_cancel_pair(bt_, address.c_str());
         } else if (action == "remove") {
@@ -549,7 +603,8 @@ private:
             if (action == "avrcp_next") ret = ehal_bt_avrcp_next(bt_, address.c_str());
             if (action == "avrcp_previous") ret = ehal_bt_avrcp_previous(bt_, address.c_str());
         }
-        if (action == "pair" || action == "trust" || action == "connect" ||
+        if (action == "pair" || action == "pair_connect" ||
+            action == "trust" || action == "connect" ||
             action == "disconnect" || action == "remove" ||
             action == "block") {
             /*
