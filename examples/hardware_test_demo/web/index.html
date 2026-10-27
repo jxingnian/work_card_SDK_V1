@@ -7,13 +7,22 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main class="container">
-    <header>
-      <h1>硬件测试 Demo</h1>
-      <p class="muted">当前首期模块：原生 WiFi。扫描不会停止当前 WiFi 服务或切换网络。</p>
-    </header>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>硬件测试</h1>
+      <p class="muted">板端硬件验证工具</p>
+      <button class="nav-item active" data-page="wifi-page">WiFi 与网络</button>
+      <button class="nav-item" data-page="audio-page">音频</button>
+    </aside>
 
-    <section class="card">
+    <main class="container">
+      <header>
+        <h1>硬件测试 Demo</h1>
+        <p class="muted">WiFi 扫描不会停止当前 WiFi 服务或切换网络。</p>
+      </header>
+
+      <div id="wifi-page" class="page active-page">
+      <section class="card">
       <div class="card-title">
         <h2>当前 WiFi</h2>
         <button id="refresh-status">刷新</button>
@@ -21,7 +30,7 @@
       <pre id="status-output">正在读取...</pre>
     </section>
 
-    <section class="card">
+      <section class="card">
       <div class="card-title">
         <h2>保存的 WiFi</h2>
         <button id="refresh-saved">刷新</button>
@@ -29,7 +38,7 @@
       <div id="saved-list" class="list"></div>
     </section>
 
-    <section class="card">
+      <section class="card">
       <div class="card-title">
         <h2>扫描 WiFi</h2>
         <button id="scan">开始扫描</button>
@@ -37,7 +46,7 @@
       <div id="scan-list" class="list"></div>
     </section>
 
-    <section class="card">
+      <section class="card">
       <h2>增加 WiFi</h2>
       <form id="add-form">
         <label>SSID <input id="ssid" maxlength="32" required></label>
@@ -53,11 +62,23 @@
       </form>
     </section>
 
-    <section class="card">
+      <section class="card">
       <h2>操作结果</h2>
       <pre id="result-output">等待操作</pre>
     </section>
-  </main>
+      </div>
+
+      <div id="audio-page" class="page">
+        <section class="card audio-launch-card">
+          <h2>音频测试</h2>
+          <p class="muted">音频模块使用厂商 MPP 和 /dev/acodec 原生接口，独立管理 AI/AO 生命周期。</p>
+          <p class="muted">进入后可查看麦克风、扬声器状态，录音并下载/播放，播放文字语音测试音频，调节音量和麦克风增益。</p>
+          <button id="open-audio">打开音频测试页</button>
+        </section>
+        <iframe id="audio-frame" title="音频测试页面"></iframe>
+      </div>
+    </main>
+  </div>
   <script src="/app.js"></script>
 </body>
 </html>

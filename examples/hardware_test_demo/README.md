@@ -1,6 +1,6 @@
 # Hardware Test Demo
 
-首期 Demo 只实现原生 WiFi 网页测试，不调用 `ehal_wifi`、`ehal_audio`、`ehal_camera` 或 `libhal.so`。
+Demo 使用侧边栏组织硬件模块：第一栏是 WiFi 与网络，第二栏是音频。WiFi 进程不调用 `ehal_wifi`、`ehal_audio`、`ehal_camera` 或 `libhal.so`；音频第二栏启动交付包内独立的原生 Audio MPP Demo。
 
 WiFi 操作直接执行板端 `wpa_cli`、`iw` 和 `ip`。当前开发板的 `wpa_supplicant` 控制 socket 位于 `/etc/wireless/wpa_supplicant/wlan0`，运行脚本默认使用 `/etc/wireless/wpa_supplicant`。扫描只调用当前运行中的 `wpa_supplicant` 控制接口，代码不执行 `terminate`、`killall`、`ifconfig down`、`disconnect`、`select_network` 或 `reassociate`，因此扫描流程不会主动切断当前网络。
 
@@ -43,3 +43,5 @@ http://192.168.137.167:8090/
 ```
 
 连接网络是明确的切换操作；扫描、读取当前状态、读取保存网络和删除非当前网络不执行连接切换。
+
+音频页面运行在同一板端的 8092 端口，直接使用厂商 `ss_mpi_audio_*`、AI/AO、`/dev/acodec` 接口，提供麦克风/扬声器状态、录音下载、录音播放、文字语音测试音频、扬声器音量和麦克风增益调节。

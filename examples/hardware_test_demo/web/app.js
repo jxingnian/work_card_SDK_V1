@@ -17,6 +17,22 @@ async function api(path, options = {}) {
   return value;
 }
 
+/* 切换侧边栏页面；音频页面首次打开时才加载独立音频服务。 */
+function switchPage(pageId) {
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    item.classList.toggle('active', item.dataset.page === pageId);
+  });
+  document.querySelectorAll('.page').forEach((page) => {
+    page.classList.toggle('active-page', page.id === pageId);
+  });
+  if (pageId === 'audio-page') {
+    const frame = document.getElementById('audio-frame');
+    if (!frame.src) {
+      frame.src = `${window.location.protocol}//${window.location.hostname}:8092/`;
+    }
+  }
+}
+
 /* 读取当前板端状态，并把接口返回原样格式化显示。 */
 async function refreshStatus() {
   try {
@@ -125,5 +141,9 @@ document.getElementById('refresh-status').onclick = refreshStatus;
 document.getElementById('refresh-saved').onclick = refreshSaved;
 document.getElementById('scan').onclick = scan;
 document.getElementById('add-form').onsubmit = addNetwork;
+document.querySelectorAll('.nav-item').forEach((item) => {
+  item.onclick = () => switchPage(item.dataset.page);
+});
+document.getElementById('open-audio').onclick = () => switchPage('audio-page');
 refreshStatus();
 refreshSaved();
