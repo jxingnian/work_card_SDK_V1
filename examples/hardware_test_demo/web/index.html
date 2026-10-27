@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>硬件测试 Demo</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>硬件测试 Demo</h1>
+      <p class="muted">当前首期模块：原生 WiFi。扫描不会停止当前 WiFi 服务或切换网络。</p>
+    </header>
+
+    <section class="card">
+      <div class="card-title">
+        <h2>当前 WiFi</h2>
+        <button id="refresh-status">刷新</button>
+      </div>
+      <pre id="status-output">正在读取...</pre>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <h2>保存的 WiFi</h2>
+        <button id="refresh-saved">刷新</button>
+      </div>
+      <div id="saved-list" class="list"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <h2>扫描 WiFi</h2>
+        <button id="scan">开始扫描</button>
+      </div>
+      <div id="scan-list" class="list"></div>
+    </section>
+
+    <section class="card">
+      <h2>增加 WiFi</h2>
+      <form id="add-form">
+        <label>SSID <input id="ssid" maxlength="32" required></label>
+        <label>认证
+          <select id="auth">
+            <option value="WPA-PSK">WPA/WPA2-PSK</option>
+            <option value="OPEN">开放网络</option>
+          </select>
+        </label>
+        <label>密码 <input id="password" type="password" maxlength="63"></label>
+        <label class="checkbox"><input id="connect-now" type="checkbox"> 保存后立即连接</label>
+        <button type="submit">增加并保存</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>操作结果</h2>
+      <pre id="result-output">等待操作</pre>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

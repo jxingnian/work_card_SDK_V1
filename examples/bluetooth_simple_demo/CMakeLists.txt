@@ -4,20 +4,13 @@ project(bluetooth_simple_demo)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 包含SDK头文件
-include_directories(${CMAKE_SOURCE_DIR}/../../include)
-
-# 链接SDK库目录
-link_directories(${CMAKE_SOURCE_DIR}/../../lib)
-
-# 添加可执行文件
+# 添加可执行文件 - 使用底层实现版本
 add_executable(bluetooth_simple_demo
     bluetooth_simple_demo.cpp
 )
 
-# 链接库
+# 只链接 pthread，不需要 ehal_bluetooth
 target_link_libraries(bluetooth_simple_demo
-    ehal_bluetooth
     pthread
 )
 

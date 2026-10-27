@@ -1,10 +1,15 @@
-#include "ehal_bluetooth.h"
+/*
+ * 蓝牙设备管理演示程序 - 底层实现版本
+ * 直接使用 bluetoothctl 命令，不依赖 ehal_bluetooth 封装库
+ */
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <array>
 #include <cerrno>
@@ -12,9 +17,11 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -23,6 +30,19 @@ volatile sig_atomic_t g_stop = 0;
 void on_signal(int)
 {
     g_stop = 1;
+}
+
+// ========== 工具函数 ==========
+
+std::string trim(const std::string &value)
+{
+    const char *spaces = " \t\r\n";
+    size_t first = value.find_first_not_of(spaces);
+    if (first == std::string::npos) {
+        return "";
+    }
+    size_t last = value.find_last_not_of(spaces);
+    return value.substr(first, last - first + 1U);
 }
 
 std::string url_decode(const std::string &value)
@@ -139,6 +159,325 @@ std::string value_or(const std::map<std::string, std::string> &query,
     return it == query.end() ? fallback : it->second;
 }
 
+// ========== bluetoothctl 命令封装 ==========
+
+struct BluetoothDevice {
+    std::string address;
+    std::string name;
+    int rssi = 0;
+    bool paired = false;
+    bool connected = false;
+};
+
+std::string run_command(const std::string &command)
+{
+    std::array<char, 512> buffer{};
+    std::string result;
+    FILE *pipe = popen((command + " 2>&1").c_str(), "r");
+    if (pipe == nullptr) {
+        return "";
+    }
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+        result += buffer.data();
+    }
+    pclose(pipe);
+    return result;
+}
+
+std::string run_bluetoothctl(const std::string &args, int timeout_sec = 3)
+{
+    std::string cmd = "timeout " + std::to_string(timeout_sec + 3) +
+                      " bluetoothctl --timeout " + std::to_string(timeout_sec) +
+                      " " + args;
+    return run_command(cmd);
+}
+
+std::vector<BluetoothDevice> parse_devices_output(const std::string &output)
+{
+    std::vector<BluetoothDevice> devices;
+    std::istringstream stream(output);
+    std::string line;
+
+    while (std::getline(stream, line)) {
+        line = trim(line);
+        if (line.find("Device ") == 0) {
+            BluetoothDevice dev;
+            size_t addr_start = 7; // "Device " 长度
+            size_t addr_end = line.find(' ', addr_start);
+            if (addr_end != std::string::npos) {
+                dev.address = line.substr(addr_start, addr_end - addr_start);
+                dev.name = trim(line.substr(addr_end + 1));
+                if (dev.name.empty()) {
+                    dev.name = dev.address;
+                }
+                devices.push_back(dev);
+            }
+        }
+    }
+    return devices;
+}
+
+bool parse_device_info(const std::string &info_output, BluetoothDevice &dev)
+{
+    std::istringstream stream(info_output);
+    std::string line;
+
+    while (std::getline(stream, line)) {
+        line = trim(line);
+        if (line.find("Name:") == 0) {
+            dev.name = trim(line.substr(5));
+        } else if (line.find("Alias:") == 0 && dev.name.empty()) {
+            dev.name = trim(line.substr(6));
+        } else if (line.find("Paired:") == 0) {
+            dev.paired = (line.find("yes") != std::string::npos);
+        } else if (line.find("Connected:") == 0) {
+            dev.connected = (line.find("yes") != std::string::npos);
+        } else if (line.find("RSSI:") == 0) {
+            std::string rssi_str = trim(line.substr(5));
+            try {
+                dev.rssi = std::stoi(rssi_str);
+            } catch (...) {
+                dev.rssi = 0;
+            }
+        }
+    }
+    return true;
+}
+
+// ========== 蓝牙管理类 ==========
+
+class BluetoothManager {
+public:
+    BluetoothManager()
+        : agent_pid_(-1), agent_write_fd_(-1), scan_running_(false)
+    {
+    }
+
+    ~BluetoothManager()
+    {
+        stop_scan();
+        stop_agent();
+    }
+
+    bool initialize()
+    {
+        // 检查 bluetoothctl 是否可用
+        std::string version = run_command("command -v bluetoothctl");
+        if (version.empty()) {
+            std::fprintf(stderr, "错误: bluetoothctl 未安装\n");
+            return false;
+        }
+
+        // 启动配对代理
+        return start_agent();
+    }
+
+    bool start_agent()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (agent_pid_ > 0 && agent_write_fd_ >= 0) {
+            return true;
+        }
+
+        int input_pipe[2] = {-1, -1};
+        if (pipe(input_pipe) != 0) {
+            std::perror("pipe");
+            return false;
+        }
+
+        pid_t pid = fork();
+        if (pid < 0) {
+            close(input_pipe[0]);
+            close(input_pipe[1]);
+            std::perror("fork");
+            return false;
+        }
+
+        if (pid == 0) {
+            // 子进程：运行持久化的 bluetoothctl
+            close(input_pipe[1]);
+            dup2(input_pipe[0], STDIN_FILENO);
+            close(input_pipe[0]);
+
+            int null_fd = open("/dev/null", O_WRONLY);
+            if (null_fd >= 0) {
+                dup2(null_fd, STDOUT_FILENO);
+                dup2(null_fd, STDERR_FILENO);
+                close(null_fd);
+            }
+
+            execlp("bluetoothctl", "bluetoothctl", static_cast<char *>(nullptr));
+            _exit(127);
+        }
+
+        // 父进程
+        close(input_pipe[0]);
+        agent_pid_ = pid;
+        agent_write_fd_ = input_pipe[1];
+
+        // 初始化代理
+        const char *init_cmds = "agent NoInputNoOutput\ndefault-agent\npairable on\n";
+        if (write(agent_write_fd_, init_cmds, strlen(init_cmds)) < 0) {
+            stop_agent();
+            return false;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::printf("✓ 配对代理已启动\n");
+        return true;
+    }
+
+    void stop_agent()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (agent_write_fd_ >= 0) {
+            close(agent_write_fd_);
+            agent_write_fd_ = -1;
+        }
+
+        if (agent_pid_ > 0) {
+            int status = 0;
+            if (waitpid(agent_pid_, &status, WNOHANG) == 0) {
+                kill(agent_pid_, SIGTERM);
+                waitpid(agent_pid_, &status, 0);
+            }
+            agent_pid_ = -1;
+        }
+    }
+
+    bool start_scan()
+    {
+        if (scan_running_) {
+            return true;
+        }
+
+        std::string result = run_bluetoothctl("scan on", 2);
+        scan_running_ = true;
+        std::printf("✓ 开始扫描蓝牙设备\n");
+        return true;
+    }
+
+    bool stop_scan()
+    {
+        if (!scan_running_) {
+            return true;
+        }
+
+        std::string result = run_bluetoothctl("scan off", 2);
+        scan_running_ = false;
+        std::printf("✓ 停止扫描\n");
+        return true;
+    }
+
+    std::vector<BluetoothDevice> get_devices()
+    {
+        std::vector<BluetoothDevice> all_devices;
+
+        // 获取所有设备
+        std::string devices_output = run_bluetoothctl("devices", 1);
+        std::vector<BluetoothDevice> devices = parse_devices_output(devices_output);
+
+        // 获取已配对设备
+        std::string paired_output = run_bluetoothctl("devices Paired", 1);
+        std::vector<BluetoothDevice> paired = parse_devices_output(paired_output);
+
+        // 为每个设备获取详细信息
+        for (auto &dev : devices) {
+            std::string info = run_bluetoothctl("info " + dev.address, 1);
+            parse_device_info(info, dev);
+
+            // 检查是否在已配对列表中
+            for (const auto &p : paired) {
+                if (p.address == dev.address) {
+                    dev.paired = true;
+                    break;
+                }
+            }
+
+            all_devices.push_back(dev);
+        }
+
+        return all_devices;
+    }
+
+    bool pair_device(const std::string &address)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (agent_pid_ <= 0 || agent_write_fd_ < 0) {
+            std::fprintf(stderr, "错误: 配对代理未运行\n");
+            return false;
+        }
+
+        std::string cmd = "pair " + address + "\n";
+        if (write(agent_write_fd_, cmd.c_str(), cmd.size()) < 0) {
+            std::perror("write pair command");
+            return false;
+        }
+
+        // 等待配对完成
+        for (int i = 0; i < 20; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::string info = run_bluetoothctl("info " + address, 1);
+            if (info.find("Paired: yes") != std::string::npos) {
+                std::printf("✓ 配对成功: %s\n", address.c_str());
+                return true;
+            }
+        }
+
+        std::fprintf(stderr, "✗ 配对超时: %s\n", address.c_str());
+        return false;
+    }
+
+    bool connect_device(const std::string &address)
+    {
+        std::string result = run_bluetoothctl("connect " + address, 5);
+        bool success = (result.find("Connection successful") != std::string::npos ||
+                       result.find("Connected: yes") != std::string::npos);
+        if (success) {
+            std::printf("✓ 连接成功: %s\n", address.c_str());
+        } else {
+            std::fprintf(stderr, "✗ 连接失败: %s\n", address.c_str());
+        }
+        return success;
+    }
+
+    bool disconnect_device(const std::string &address)
+    {
+        std::string result = run_bluetoothctl("disconnect " + address, 3);
+        std::printf("✓ 断开连接: %s\n", address.c_str());
+        return true;
+    }
+
+    bool remove_device(const std::string &address)
+    {
+        std::string result = run_bluetoothctl("remove " + address, 3);
+        bool success = (result.find("Device has been removed") != std::string::npos ||
+                       result.find("not available") == std::string::npos);
+        if (success) {
+            std::printf("✓ 移除设备: %s\n", address.c_str());
+        }
+        return success;
+    }
+
+    bool set_trusted(const std::string &address, bool trusted)
+    {
+        std::string cmd = trusted ? "trust " : "untrust ";
+        std::string result = run_bluetoothctl(cmd + address, 2);
+        return true;
+    }
+
+private:
+    std::mutex mutex_;
+    pid_t agent_pid_;
+    int agent_write_fd_;
+    bool scan_running_;
+};
+
+// ========== HTTP 服务器 ==========
+
 class BluetoothSimpleDemo {
 public:
     BluetoothSimpleDemo(int port, std::string web_root)
@@ -146,33 +485,13 @@ public:
     {
     }
 
-    ~BluetoothSimpleDemo()
-    {
-        if (bt_ != nullptr) {
-            (void)ehal_bt_stop(bt_);
-            ehal_bt_destroy(bt_);
-        }
-    }
-
     int initialize()
     {
-        ehal_bt_config_t config{};
-        config.adapter = "hci0";
-        config.command_timeout_ms = 5000U;
-        config.scan_timeout_ms = 10000U;
-
-        int ret = ehal_bt_create(&bt_);
-        if (ret == EHAL_OK) {
-            ret = ehal_bt_configure(bt_, &config);
+        if (!bt_mgr_.initialize()) {
+            std::fprintf(stderr, "蓝牙管理器初始化失败\n");
+            return 1;
         }
-        if (ret == EHAL_OK) {
-            ret = ehal_bt_start(bt_);
-        }
-        if (ret != EHAL_OK) {
-            std::fprintf(stderr, "蓝牙初始化失败: %s (%d)\n",
-                         ehal_bt_error_string(ret), ret);
-        }
-        return ret;
+        return 0;
     }
 
     int run()
@@ -218,12 +537,11 @@ public:
     }
 
 private:
-    std::string result_json(int ret, const std::string &extra = "")
+    std::string result_json(bool ok, const std::string &error = "", const std::string &extra = "")
     {
         std::ostringstream out;
-        out << "{\"ok\":" << (ret == EHAL_OK ? "true" : "false")
-            << ",\"code\":" << ret
-            << ",\"error\":\"" << json_escape(ehal_bt_error_string(ret)) << "\"";
+        out << "{\"ok\":" << (ok ? "true" : "false")
+            << ",\"error\":\"" << json_escape(error) << "\"";
         if (!extra.empty()) {
             out << ',' << extra;
         }
@@ -233,60 +551,52 @@ private:
 
     std::string devices_json()
     {
-        ehal_bt_device_info_t devices[64] = {};
-        uint32_t count = 0U;
-        int ret = ehal_bt_get_devices(bt_, devices, 64U, &count);
-        if (ret != EHAL_OK) {
-            return result_json(ret);
-        }
+        std::vector<BluetoothDevice> devices = bt_mgr_.get_devices();
 
         std::ostringstream out;
         out << "[";
-        for (uint32_t i = 0U; i < count && i < 64U; ++i) {
-            if (i != 0U) {
+        for (size_t i = 0; i < devices.size(); ++i) {
+            if (i != 0) {
                 out << ',';
             }
             out << "{\"address\":\"" << json_escape(devices[i].address)
                 << "\",\"name\":\"" << json_escape(devices[i].name)
                 << "\",\"rssi\":" << devices[i].rssi
-                << ",\"paired\":" << devices[i].paired
-                << ",\"connected\":" << devices[i].connected << '}';
+                << ",\"paired\":" << (devices[i].paired ? "true" : "false")
+                << ",\"connected\":" << (devices[i].connected ? "true" : "false") << '}';
         }
         out << "]";
 
-        return result_json(ret, "\"devices\":" + out.str());
+        return result_json(true, "", "\"devices\":" + out.str());
     }
 
     std::string action_json(const std::map<std::string, std::string> &query)
     {
         const std::string action = value_or(query, "action");
         const std::string address = value_or(query, "address");
-        int ret = EHAL_ERR_PARAM;
+        bool success = false;
 
         if (action == "start_scan") {
-            ret = ehal_bt_start_scan(bt_);
+            success = bt_mgr_.start_scan();
         } else if (action == "stop_scan") {
-            ret = ehal_bt_stop_scan(bt_);
+            success = bt_mgr_.stop_scan();
         } else if (action == "pair") {
-            ret = ehal_bt_pair(bt_, address.c_str());
+            success = bt_mgr_.pair_device(address);
         } else if (action == "connect") {
-            ret = ehal_bt_connect(bt_, address.c_str());
+            success = bt_mgr_.connect_device(address);
         } else if (action == "disconnect") {
-            ret = ehal_bt_disconnect(bt_, address.c_str());
+            success = bt_mgr_.disconnect_device(address);
         } else if (action == "remove") {
-            ret = ehal_bt_remove_device(bt_, address.c_str());
+            success = bt_mgr_.remove_device(address);
         } else if (action == "pair_and_connect") {
-            // 配对并连接
-            ret = ehal_bt_pair(bt_, address.c_str());
-            if (ret == EHAL_OK) {
-                ret = ehal_bt_set_trusted(bt_, address.c_str(), 1);
-            }
-            if (ret == EHAL_OK) {
-                ret = ehal_bt_connect(bt_, address.c_str());
+            success = bt_mgr_.pair_device(address);
+            if (success) {
+                bt_mgr_.set_trusted(address, true);
+                success = bt_mgr_.connect_device(address);
             }
         }
 
-        return result_json(ret);
+        return result_json(success, success ? "" : "操作失败");
     }
 
     void handle_client(int client)
@@ -337,7 +647,7 @@ private:
 
     int port_;
     std::string web_root_;
-    ehal_bluetooth_t *bt_ = nullptr;
+    BluetoothManager bt_mgr_;
 };
 
 } // namespace
@@ -361,7 +671,7 @@ int main(int argc, char **argv)
 
     BluetoothSimpleDemo demo(port, web_root);
     int ret = demo.initialize();
-    if (ret != EHAL_OK) {
+    if (ret != 0) {
         return 1;
     }
     return demo.run();
