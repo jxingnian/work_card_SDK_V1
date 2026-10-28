@@ -31,6 +31,12 @@ function switchPage(pageId) {
       frame.src = `${window.location.protocol}//${window.location.hostname}:8092/`;
     }
   }
+  if (pageId === 'camera-page') {
+    const frame = document.getElementById('camera-frame');
+    if (!frame.src) {
+      frame.src = `${window.location.protocol}//${window.location.hostname}:8093/`;
+    }
+  }
 }
 
 /* 读取当前板端状态，并把接口返回原样格式化显示。 */
@@ -145,5 +151,6 @@ document.querySelectorAll('.nav-item').forEach((item) => {
   item.onclick = () => switchPage(item.dataset.page);
 });
 document.getElementById('open-audio').onclick = () => switchPage('audio-page');
+document.getElementById('open-camera').onclick = () => switchPage('camera-page');
 refreshStatus();
 refreshSaved();

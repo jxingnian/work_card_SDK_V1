@@ -14,8 +14,15 @@
   </style>
 </head>
 <body><main>
-  <h1>摄像头 RTSP 配置</h1>
-  <section class="card"><h2>播放地址</h2><div id="rtspUrl">rtsp://192.168.137.239:8554/live</div><br><button id="copyBtn">一键复制</button></section>
+  <h1>摄像头测试</h1>
+  <section class="card">
+    <h2>网页实时预览</h2>
+    <p>网页使用 JPEG 帧轮询显示实时画面；RTSP 地址继续用于 VLC、ffplay、PotPlayer 等外部播放器。</p>
+    <img id="preview" alt="摄像头画面" style="display:block;width:100%;max-height:540px;object-fit:contain;background:#101828;border-radius:6px">
+    <div class="row"><button id="previewBtn">开始预览</button><button type="button" class="secondary" id="snapshotBtn">下载当前截图</button></div>
+    <div id="previewMessage"></div>
+  </section>
+  <section class="card"><h2>RTSP 外部拉流</h2><p>浏览器不能原生播放 RTSP，请复制下面地址到 VLC、ffplay 或 PotPlayer。</p><div id="rtspUrl">rtsp://192.168.137.239:8554/live</div><br><button id="copyBtn">一键复制</button></section>
   <div class="grid">
     <section class="card"><h2>视频参数</h2>
       <form id="configForm">
@@ -31,10 +38,15 @@
   </div>
 </main><script>
 const $=s=>document.querySelector(s), form=$('#configForm'), message=$('#message');
+let previewTimer=null;
 function show(text,ok){message.textContent=text;message.className=ok?'ok':'error'}
+function showPreview(text,ok){$('#previewMessage').textContent=text;$('#previewMessage').className=ok?'ok':'error'}
+function refreshPreview(){if(previewTimer)$('#preview').src='/snapshot.jpg?ts='+Date.now()}
+function startPreview(){if(previewTimer)return;previewTimer=setInterval(refreshPreview,250);refreshPreview();$('#previewBtn').textContent='停止预览';showPreview('网页预览已启动',true)}
+function stopPreview(){if(previewTimer){clearInterval(previewTimer);previewTimer=null}$('#preview').removeAttribute('src');$('#previewBtn').textContent='开始预览';showPreview('网页预览已停止',true)}
 async function copyUrl(){const text=$('#rtspUrl').textContent;try{if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(text);else{const t=document.createElement('textarea');t.value=text;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove()}show('RTSP 地址已复制',true)}catch(e){show('复制失败：'+e.message,false)}}
 function body(restart){const d=new URLSearchParams(new FormData(form));const [w,h]=d.get('resolution').split('x');d.delete('resolution');d.set('width',w);d.set('height',h);if(!restart){const r=new URLSearchParams();r.set('fps',d.get('fps'));r.set('bitrate_kbps',d.get('bitrate_kbps'));return r}return d}
 async function apply(restart){show('正在应用…',true);try{const res=await fetch(restart?'/api/config/restart':'/api/config',{method:'POST',body:body(restart)});const data=await res.json();if(!res.ok||data.code!==0)throw new Error(`${data.message||'配置失败'} (code=${data.code}, stage=${data.stage||'none'}, hal=${data.hal_error||0})`);show(restart?'配置成功，视频链路已重启':'在线参数已生效',true);await refresh()}catch(e){show('配置失败：'+e.message,false)}}
 async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'}),d=await r.json();$('#status').textContent=JSON.stringify(d,null,2);$('#rtspUrl').textContent=(d.rtsp_url||`rtsp://${location.hostname}:8554/live`).replace('192.168.137.239',location.hostname);form.fps.value=d.fps;form.bitrate_kbps.value=d.bitrate_kbps;form.codec.value=d.codec;form.gop.value=d.gop;const option=[...form.resolution.options].find(o=>o.value===`${d.width}x${d.height}`);if(option)form.resolution.value=option.value}catch(e){show('读取状态失败：'+e.message,false)}}
-form.addEventListener('submit',e=>{e.preventDefault();apply(true)});$('#runtimeBtn').onclick=()=>apply(false);$('#copyBtn').onclick=copyUrl;$('#refreshBtn').onclick=refresh;refresh();setInterval(refresh,3000);
+form.addEventListener('submit',e=>{e.preventDefault();apply(true)});$('#runtimeBtn').onclick=()=>apply(false);$('#copyBtn').onclick=copyUrl;$('#refreshBtn').onclick=refresh;$('#previewBtn').onclick=()=>previewTimer?stopPreview():startPreview();$('#snapshotBtn').onclick=()=>window.open('/snapshot.jpg?download='+Date.now(),'_blank');refresh();setInterval(refresh,3000);startPreview();
 </script></body></html>

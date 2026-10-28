@@ -13,6 +13,7 @@
       <p class="muted">板端硬件验证工具</p>
       <button class="nav-item active" data-page="wifi-page">WiFi 与网络</button>
       <button class="nav-item" data-page="audio-page">音频</button>
+      <button class="nav-item" data-page="camera-page">摄像头</button>
     </aside>
 
     <main class="container">
@@ -76,6 +77,15 @@
           <button id="open-audio">打开音频测试页</button>
         </section>
         <iframe id="audio-frame" title="音频测试页面"></iframe>
+      </div>
+
+      <div id="camera-page" class="page">
+        <section class="card camera-launch-card">
+          <h2>摄像头测试</h2>
+          <p class="muted">网页预览使用 JPEG 帧显示；RTSP 地址继续保留给 VLC、ffplay、PotPlayer 等外部播放器。</p>
+          <button id="open-camera">打开摄像头测试页</button>
+        </section>
+        <iframe id="camera-frame" title="摄像头测试页面"></iframe>
       </div>
     </main>
   </div>
