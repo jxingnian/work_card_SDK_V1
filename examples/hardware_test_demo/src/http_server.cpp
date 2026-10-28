@@ -74,7 +74,7 @@ size_t parse_content_length(const std::string &headers)
             const std::string value = line.substr(15U);
             try {
                 size_t parsed = std::stoul(value);
-                return parsed <= 65536U ? parsed : 65537U;
+                return parsed <= 8U * 1024U * 1024U ? parsed : 8U * 1024U * 1024U + 1U;
             } catch (...) {
                 return 65537U;
             }
@@ -140,7 +140,7 @@ bool HttpServer::read_request(int client_fd, HttpRequest *request)
     const size_t header_end = buffer.find("\r\n\r\n");
     const std::string headers = buffer.substr(0U, header_end);
     const size_t content_length = parse_content_length(headers);
-    if (content_length > 65536U) {
+    if (content_length > 8U * 1024U * 1024U) {
         return false;
     }
     while (buffer.size() < header_end + 4U + content_length) {

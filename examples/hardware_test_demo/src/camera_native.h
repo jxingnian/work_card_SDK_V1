@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <thread>
 
 struct ehal_camera;
 
@@ -37,13 +38,17 @@ public:
     std::string status_json() const;
 
 private:
+    void frame_worker();
     mutable std::mutex mutex_;
+    std::thread frame_thread_;
     ehal_camera *camera_ = nullptr;
     std::string default_config_path_;
     std::string runtime_config_path_;
     std::string sensor_name_;
     std::string last_error_;
     bool running_ = false;
+    bool stop_worker_ = false;
+    std::string latest_jpeg_;
     uint64_t snapshot_count_ = 0U;
 };
 

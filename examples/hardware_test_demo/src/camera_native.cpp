@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <chrono>
 #include <utility>
 #include <unistd.h>
 
@@ -116,20 +117,62 @@ bool NativeCamera::start(std::string *error_message)
     last_error_.clear();
     snapshot_count_ = 0U;
     running_ = true;
+    stop_worker_ = false;
+    frame_thread_ = std::thread(&NativeCamera::frame_worker, this);
     return true;
 }
 
 void NativeCamera::stop()
 {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stop_worker_ = true;
+        running_ = false;
+    }
+    if (frame_thread_.joinable()) {
+        frame_thread_.join();
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (camera_ != nullptr) {
-        if (running_) {
-            (void)ehal_camera_stop(camera_);
-        }
+        (void)ehal_camera_stop(camera_);
         ehal_camera_destroy(camera_);
         camera_ = nullptr;
     }
-    running_ = false;
+    latest_jpeg_.clear();
+}
+
+void NativeCamera::frame_worker()
+{
+    while (true) {
+        std::string path = snapshot_path();
+        std::string frame;
+        bool should_stop = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            should_stop = stop_worker_ || camera_ == nullptr;
+            if (!should_stop) {
+                const int result = ehal_camera_snapshot(camera_, kCameraChannel, path.c_str());
+                if (result == EHAL_OK) {
+                    std::ifstream input(path, std::ios::binary);
+                    if (input.is_open()) {
+                        std::ostringstream content;
+                        content << input.rdbuf();
+                        frame = content.str();
+                    }
+                } else {
+                    last_error_ = camera_error(result);
+                }
+                (void)unlink(path.c_str());
+                if (!frame.empty()) {
+                    latest_jpeg_ = std::move(frame);
+                    ++snapshot_count_;
+                    last_error_.clear();
+                }
+            }
+        }
+        if (should_stop) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
 }
 
 bool NativeCamera::snapshot(std::string *jpeg_data, std::string *error_message)
@@ -139,47 +182,26 @@ bool NativeCamera::snapshot(std::string *jpeg_data, std::string *error_message)
     }
     std::lock_guard<std::mutex> lock(mutex_);
     if (!running_ || camera_ == nullptr) {
-        if (error_message != nullptr) {
-            *error_message = "camera is not running";
-        }
+        if (error_message != nullptr) *error_message = "camera is not running";
         return false;
     }
-
-    const std::string path = snapshot_path();
-    const int result = ehal_camera_snapshot(camera_, kCameraChannel, path.c_str());
-    if (result != EHAL_OK) {
-        last_error_ = camera_error(result);
-        if (error_message != nullptr) {
-            *error_message = last_error_;
-        }
-        (void)unlink(path.c_str());
+    if (latest_jpeg_.empty()) {
+        if (error_message != nullptr) *error_message = "camera frame is not ready";
         return false;
     }
-
-    std::ifstream input(path, std::ios::binary);
-    if (!input.is_open()) {
-        last_error_ = "camera snapshot file cannot be opened";
-        if (error_message != nullptr) {
-            *error_message = last_error_;
-        }
-        (void)unlink(path.c_str());
-        return false;
-    }
-    std::ostringstream content;
-    content << input.rdbuf();
-    input.close();
-    (void)unlink(path.c_str());
-    *jpeg_data = content.str();
-    if (jpeg_data->empty()) {
-        last_error_ = "camera snapshot is empty";
-        if (error_message != nullptr) {
-            *error_message = last_error_;
-        }
-        return false;
-    }
-    ++snapshot_count_;
+    *jpeg_data = latest_jpeg_;
     return true;
 }
+
+/* 原来的同步快照实现由后台线程替代，HTTP 请求只读取缓存帧。 */
+/*
+ * 旧实现保留在版本历史中，不再参与编译，避免浏览器请求直接阻塞 MPP。
+ */
+/*
+void NativeCamera::old_snapshot_removed()
+{
+}
+*/
 
 std::string NativeCamera::status_json() const
 {

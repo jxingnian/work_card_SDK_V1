@@ -25,11 +25,11 @@ function switchPage(pageId) {
   document.querySelectorAll('.page').forEach((page) => {
     page.classList.toggle('active-page', page.id === pageId);
   });
-  if (pageId === 'audio-page') {
-    const frame = document.getElementById('audio-frame');
-    if (!frame.src) {
-      frame.src = `${window.location.protocol}//${window.location.hostname}:8092/`;
-    }
+  if (pageId === 'camera-page') {
+    startCameraPreview();
+    refreshCameraStatus();
+  } else {
+    stopCameraPreview();
   }
 }
 
@@ -82,6 +82,74 @@ function stopCameraPreview() {
     clearInterval(cameraPreviewTimer);
     cameraPreviewTimer = null;
   }
+}
+
+/* 构造当前 Demo 自带的音频控制面板，页面不再创建 8092 外部 iframe。 */
+function initializeAudioPage() {
+  const page = document.getElementById('audio-page');
+  page.innerHTML = `
+    <section class="card"><h2>音频状态</h2>
+      <button id="audio-refresh">刷新状态</button><pre id="audio-status">正在读取...</pre></section>
+    <section class="card"><h2>左右麦录音</h2>
+      <button id="record-left">开始左麦录音</button><button id="record-right">开始右麦录音</button>
+      <button id="record-stop" class="danger">停止录音</button><button id="record-play">直接播放录音</button><button id="record-download">下载 WAV 录音</button></section>
+    <section class="card"><h2>语音播放</h2>
+      <label>PCM WAV 语音文件 <input id="voice-file" type="file" accept="audio/wav,.wav"></label>
+      <button id="voice-upload">上传语音</button><button id="voice-play">播放语音</button>
+      <button id="voice-stop" class="danger">停止播放</button></section>
+    <section class="card"><h2>频率测试音</h2>
+      <form id="tone-form"><label>频率 Hz <input id="tone-frequency" type="number" min="1" max="8000" value="1000"></label>
+      <label>时长 ms <input id="tone-duration" type="number" min="50" max="10000" value="1000"></label>
+      <label>播放音量 <input id="tone-volume" type="number" min="0" max="100" value="80"></label>
+      <label>循环次数 <input id="tone-loops" type="number" min="1" max="1000" value="1"></label>
+      <label class="checkbox"><input id="tone-infinite" type="checkbox"> 无限循环</label><button type="submit">播放测试音</button></form>
+      <button id="tone-stop" class="danger">停止测试音</button></section>
+    <section class="card"><h2>增益和音量</h2>
+      <form id="audio-level-form"><label>麦克风增益 <input id="audio-gain" type="number" min="0" max="100" value="30"></label>
+      <label>播放音量 <input id="audio-volume" type="number" min="0" max="100" value="80"></label><button type="submit">应用参数</button></form></section>`;
+
+  const audioApi = async (path, options = {}) => {
+    const response = await fetch(path, { cache: 'no-store', ...options });
+    const value = await response.json();
+    if (!response.ok || value.ok === false) throw value;
+    return value;
+  };
+  const refreshAudio = async () => {
+    try { document.getElementById('audio-status').textContent = JSON.stringify(await audioApi('/api/v1/audio/status'), null, 2); }
+    catch (error) { document.getElementById('audio-status').textContent = JSON.stringify(error, null, 2); }
+  };
+  const postAudio = (path, body) => audioApi(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const startRecord = async (channel) => { try { await postAudio('/api/v1/audio/record/start', { channel }); await refreshAudio(); } catch (error) { showResult(error); } };
+  document.getElementById('audio-refresh').onclick = refreshAudio;
+  document.getElementById('record-left').onclick = () => startRecord('left');
+  document.getElementById('record-right').onclick = () => startRecord('right');
+  document.getElementById('record-stop').onclick = async () => { try { await postAudio('/api/v1/audio/record/stop', {}); await refreshAudio(); } catch (error) { showResult(error); } };
+  document.getElementById('record-play').onclick = async () => { try { await postAudio('/api/v1/audio/record/play', { loop_count: 1 }); await refreshAudio(); } catch (error) { showResult(error); } };
+  document.getElementById('record-download').onclick = async () => {
+    const response = await fetch('/api/v1/audio/record/download', { cache: 'no-store' });
+    if (!response.ok) { showResult(await response.json()); return; }
+    const link = document.createElement('a'); link.href = URL.createObjectURL(await response.blob()); link.download = 'hardware_test_recording.ogg'; link.click();
+  };
+  document.getElementById('voice-upload').onclick = async () => {
+    const file = document.getElementById('voice-file').files[0];
+    if (!file) { showResult({ ok: false, message: '请先选择 WAV 语音文件' }); return; }
+    try { showResult(await audioApi('/api/v1/audio/upload', { method: 'POST', body: await file.arrayBuffer() })); }
+    catch (error) { showResult(error); }
+  };
+  document.getElementById('voice-play').onclick = async () => { try { await postAudio('/api/v1/audio/play', { source: 'voice', loop_count: 1 }); await refreshAudio(); } catch (error) { showResult(error); } };
+  document.getElementById('voice-stop').onclick = () => postAudio('/api/v1/audio/stop', {}).catch(showResult);
+  document.getElementById('tone-form').onsubmit = async (event) => {
+    event.preventDefault();
+    try { await postAudio('/api/v1/audio/play', { source: 'tone', frequency_hz: Number(document.getElementById('tone-frequency').value), duration_ms: Number(document.getElementById('tone-duration').value), volume: Number(document.getElementById('tone-volume').value), loop_count: Number(document.getElementById('tone-loops').value), infinite_loop: document.getElementById('tone-infinite').checked }); await refreshAudio(); }
+    catch (error) { showResult(error); }
+  };
+  document.getElementById('tone-stop').onclick = () => postAudio('/api/v1/audio/stop', {}).catch(showResult);
+  document.getElementById('audio-level-form').onsubmit = async (event) => {
+    event.preventDefault();
+    try { await postAudio('/api/v1/audio/gain', { gain: Number(document.getElementById('audio-gain').value) }); await postAudio('/api/v1/audio/volume', { volume: Number(document.getElementById('audio-volume').value) }); await refreshAudio(); }
+    catch (error) { showResult(error); }
+  };
+  refreshAudio();
 }
 
 /* 读取当前板端状态，并把接口返回原样格式化显示。 */
@@ -192,13 +260,14 @@ document.getElementById('refresh-status').onclick = refreshStatus;
 document.getElementById('refresh-saved').onclick = refreshSaved;
 document.getElementById('scan').onclick = scan;
 document.getElementById('add-form').onsubmit = addNetwork;
+initializeAudioPage();
 document.querySelectorAll('.nav-item').forEach((item) => {
   item.onclick = () => switchPage(item.dataset.page);
 });
-document.getElementById('open-audio').onclick = () => switchPage('audio-page');
+const openAudio = document.getElementById('open-audio');
+if (openAudio) openAudio.onclick = () => switchPage('audio-page');
 document.getElementById('camera-start').onclick = () => { startCameraPreview(); refreshCameraStatus(); };
 document.getElementById('camera-stop').onclick = stopCameraPreview;
 refreshStatus();
 refreshSaved();
 refreshCameraStatus();
-startCameraPreview();

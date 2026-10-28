@@ -1,8 +1,11 @@
 #include "http_server.h"
 #include "camera_native.h"
+#include "audio_native.h"
 #include "wifi_native.h"
 
 #include <csignal>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -106,6 +109,31 @@ bool json_bool_field(const std::string &json,
            (tail.find("false") < tail.find("true") ? false : default_value);
 }
 
+/* 读取简单 JSON 对象中的无符号整数，并拒绝负数和溢出值。 */
+bool json_uint_field(const std::string &json, const std::string &key,
+                    uint32_t default_value, uint32_t *value)
+{
+    const std::string marker = "\"" + key + "\"";
+    const size_t marker_pos = json.find(marker);
+    if (marker_pos == std::string::npos) {
+        *value = default_value;
+        return true;
+    }
+    const size_t colon = json.find(':', marker_pos + marker.size());
+    if (colon == std::string::npos) return false;
+    size_t cursor = colon + 1U;
+    while (cursor < json.size() && (json[cursor] == ' ' || json[cursor] == '\t')) ++cursor;
+    if (cursor >= json.size() || json[cursor] < '0' || json[cursor] > '9') return false;
+    uint64_t parsed = 0;
+    while (cursor < json.size() && json[cursor] >= '0' && json[cursor] <= '9') {
+        parsed = parsed * 10U + static_cast<uint64_t>(json[cursor] - '0');
+        if (parsed > 0xffffffffULL) return false;
+        ++cursor;
+    }
+    *value = static_cast<uint32_t>(parsed);
+    return true;
+}
+
 /* 构造统一的模块 API 响应，并保留底层命令的可验证错误信息。 */
 HttpResponse wifi_response(const WifiResult &result)
 {
@@ -163,15 +191,22 @@ public:
                             std::string web_root,
                             std::string camera_default_config,
                             std::string camera_runtime_config,
-                            std::string camera_sensor)
+                            std::string camera_sensor,
+                            std::string audio_default_config,
+                            std::string audio_runtime_config)
         : wifi_(std::move(interface_name), std::move(control_path)),
           web_root_(std::move(web_root)),
           camera_(std::move(camera_default_config),
                   std::move(camera_runtime_config),
-                  std::move(camera_sensor))
+                  std::move(camera_sensor)),
+          audio_(std::move(audio_default_config),
+                 std::move(audio_runtime_config))
     {
         std::string error_message;
         (void)camera_.start(&error_message);
+        if (!audio_.start(&error_message)) {
+            std::fprintf(stderr, "audio start failed: %s\n", error_message.c_str());
+        }
     }
 
     HttpResponse handle(const HttpRequest &request)
@@ -182,7 +217,7 @@ public:
         }
         if (request.path == "/api/v1/modules" && request.method == "GET") {
             return {200, "application/json; charset=utf-8",
-                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"}]}"};
+                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"},{\"id\":\"audio\",\"name\":\"Audio\",\"state\":\"enabled\"}]}"};
         }
         if (request.path == "/api/v1/camera/status" && request.method == "GET") {
             return {200, "application/json; charset=utf-8", camera_.status_json()};
@@ -194,6 +229,98 @@ public:
                 return error_response(503, "CAMERA_SNAPSHOT_FAILED", error_message);
             }
             return {200, "image/jpeg", std::move(jpeg_data)};
+        }
+        if (request.path == "/api/v1/audio/status" && request.method == "GET") {
+            return {200, "application/json; charset=utf-8", audio_.status_json()};
+        }
+        if (request.path == "/api/v1/audio/record/start" && request.method == "POST") {
+            std::string channel;
+            if (!json_string_field(request.body, "channel", &channel)) channel = "left";
+            std::string error_message;
+            if (!audio_.start_record(channel, &error_message)) {
+                return error_response(409, "AUDIO_RECORD_START_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/audio/record/stop" && request.method == "POST") {
+            std::string error_message;
+            if (!audio_.stop_record(&error_message)) {
+                return error_response(409, "AUDIO_RECORD_STOP_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/audio/record/download" && request.method == "GET") {
+            std::string data;
+            std::string error_message;
+            if (!audio_.read_recording(&data, &error_message)) {
+                return error_response(404, "AUDIO_RECORDING_NOT_FOUND", error_message);
+            }
+            return {200, "audio/ogg", std::move(data)};
+        }
+        if (request.path == "/api/v1/audio/record/play" && request.method == "POST") {
+            uint32_t loops = 1;
+            if (!json_uint_field(request.body, "loop_count", 1, &loops)) {
+                return error_response(400, "INVALID_REQUEST", "invalid loop count");
+            }
+            const bool infinite = json_bool_field(request.body, "infinite_loop", false);
+            std::string error_message;
+            if (!audio_.play("recording", 0, 0, 80, loops, infinite, &error_message)) {
+                return error_response(409, "AUDIO_RECORD_PLAY_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/audio/upload" && request.method == "POST") {
+            std::string error_message;
+            if (!audio_.upload(request.body, &error_message)) {
+                return error_response(400, "AUDIO_UPLOAD_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/audio/play" && request.method == "POST") {
+            std::string source;
+            if (!json_string_field(request.body, "source", &source)) source = "voice";
+            uint32_t frequency = 1000;
+            uint32_t duration = 1000;
+            uint32_t volume = 80;
+            uint32_t loops = 1;
+            if (!json_uint_field(request.body, "frequency_hz", frequency, &frequency) ||
+                !json_uint_field(request.body, "duration_ms", duration, &duration) ||
+                !json_uint_field(request.body, "volume", volume, &volume) ||
+                !json_uint_field(request.body, "loop_count", loops, &loops)) {
+                return error_response(400, "INVALID_REQUEST", "invalid numeric audio parameter");
+            }
+            const bool infinite = json_bool_field(request.body, "infinite_loop", false);
+            std::string error_message;
+            if (!audio_.play(source, frequency, duration, volume, loops, infinite, &error_message)) {
+                return error_response(409, "AUDIO_PLAY_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/audio/stop" && request.method == "POST") {
+            audio_.stop_playback();
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/audio/volume" && request.method == "POST") {
+            uint32_t volume = 0;
+            if (!json_uint_field(request.body, "volume", 0, &volume)) {
+                return error_response(400, "INVALID_REQUEST", "volume is required");
+            }
+            std::string error_message;
+            if (!audio_.set_volume(volume, &error_message)) {
+                return error_response(400, "AUDIO_VOLUME_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/audio/gain" && request.method == "POST") {
+            uint32_t gain = 0;
+            if (!json_uint_field(request.body, "gain", 0, &gain)) {
+                return error_response(400, "INVALID_REQUEST", "gain is required");
+            }
+            std::string error_message;
+            if (!audio_.set_gain(gain, &error_message)) {
+                return error_response(400, "AUDIO_GAIN_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
         }
         if (request.path == "/api/v1/wifi/status" && request.method == "GET") {
             return wifi_response(wifi_.status());
@@ -245,6 +372,7 @@ private:
     NativeWifi wifi_;
     std::string web_root_;
     NativeCamera camera_;
+    NativeAudio audio_;
 };
 
 } // namespace
@@ -261,6 +389,8 @@ int main(int argc, char **argv)
     std::string camera_runtime_config = "configs/hal.json";
     /* SDK 配置名必须使用 sc2356；实际板端驱动由链接的 fpx1002 库提供。 */
     std::string camera_sensor = "sc2356";
+    std::string audio_default_config = "configs/hal_default.json";
+    std::string audio_runtime_config = "configs/hal.json";
 
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -287,7 +417,9 @@ int main(int argc, char **argv)
     hardware_test::HardwareTestApplication application(interface_name, control_path, web_root,
                                                         camera_default_config,
                                                         camera_runtime_config,
-                                                        camera_sensor);
+                                                        camera_sensor,
+                                                        audio_default_config,
+                                                        audio_runtime_config);
     hardware_test::HttpServer server(port, [&application](const hardware_test::HttpRequest &request) {
         return application.handle(request);
     });

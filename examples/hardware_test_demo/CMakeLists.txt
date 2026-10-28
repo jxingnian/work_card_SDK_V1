@@ -16,6 +16,7 @@ add_executable(hardware_test_demo
     src/wifi_native.cpp
     src/native_command.cpp
     src/camera_native.cpp
+    src/audio_native.cpp
 )
 
 target_include_directories(hardware_test_demo PRIVATE
@@ -28,11 +29,13 @@ target_link_directories(hardware_test_demo PRIVATE "${SDK_LIB_DIR}")
 
 target_link_libraries(hardware_test_demo PRIVATE
     -Wl,--no-as-needed
-    ehal_camera hal jsoncpp
+    ehal_camera ehal_audio hal jsoncpp
     ss_mpi ss_mpi_sysbind ss_mpi_sysmem ss_mpi_ae ss_mpi_isp ot_mpi_isp
     ss_mpi_awb dehaze extend_stats drc ldci bnr calcflicker ir_auto acs securec
     sns_fpx1002 ss_mpi_aibnr svp_acl ss_mpi_km protobuf-c ot_osal ss_mpi_ive
     ss_mpi_smartae ss_mpi_otp ss_mpi_cipher ss_mpi_uvc stdc++
+    ss_mpi_audio ss_mpi_audio_adp voice_engine upvqe dnvqe vqe_res vqe_record
+    vqe_hpf vqe_anr vqe_aec vqe_agc vqe_eq vqe_talkv2 opus aac_dec
     -Wl,--as-needed pthread dl m
 )
 
