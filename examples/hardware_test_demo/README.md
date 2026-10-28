@@ -50,3 +50,26 @@ GET /api/v1/camera/snapshot.jpg
 ```
 
 状态接口必须返回 `width=640`、`height=480`、`fps=5` 和 `running=true`。
+
+## 蓝牙测试
+
+本 Demo 通过 SDK `ehal_bluetooth` 独立提供蓝牙测试，不启动或依赖其他蓝牙 Demo。
+
+网页侧边栏中的“蓝牙”页面支持：
+
+- 读取适配器状态、地址、名称、厂商、供电、可配对和扫描状态
+- 开始扫描、停止扫描、刷新附近设备
+- 查看设备地址、名称、RSSI、Classic/BLE 类型、配对、信任、连接和阻止状态
+- 执行配对、取消配对、信任、取消信任、连接、断开和删除设备
+
+蓝牙接口：
+
+```text
+GET  /api/v1/bluetooth/status
+GET  /api/v1/bluetooth/devices
+POST /api/v1/bluetooth/scan/start
+POST /api/v1/bluetooth/scan/stop
+POST /api/v1/bluetooth/action
+```
+
+`/api/v1/bluetooth/action` 的 JSON 参数为 `action`、`address`；信任和阻止操作还需要 `enabled` 布尔值。

@@ -84,6 +84,117 @@ function stopCameraPreview() {
   }
 }
 
+/* 调用蓝牙接口并把返回值原样显示，便于核对 SDK 返回码和设备状态。 */
+async function bluetoothApi(path, options = {}) {
+  const response = await fetch(path, {
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  });
+  const value = await response.json();
+  if (!response.ok || value.ok === false) throw value;
+  return value;
+}
+
+/* 刷新蓝牙适配器状态。 */
+async function refreshBluetoothStatus() {
+  try {
+    document.getElementById('bluetooth-status').textContent =
+      JSON.stringify(await bluetoothApi('/api/v1/bluetooth/status'), null, 2);
+  } catch (error) {
+    document.getElementById('bluetooth-status').textContent = JSON.stringify(error, null, 2);
+  }
+}
+
+/* 根据设备状态生成基础管理按钮，并将地址作为 JSON 参数发送到后端。 */
+function bluetoothAction(address, action, enabled = true) {
+  return bluetoothApi('/api/v1/bluetooth/action', {
+    method: 'POST',
+    body: JSON.stringify({ address, action, enabled })
+  });
+}
+
+/* 刷新扫描设备列表，并显示配对、信任、连接和删除操作。 */
+async function refreshBluetoothDevices() {
+  const list = document.getElementById('bluetooth-device-list');
+  try {
+    const value = await bluetoothApi('/api/v1/bluetooth/devices');
+    list.replaceChildren();
+    if (!value.devices.length) {
+      list.textContent = '当前没有发现设备，请开始扫描。';
+      return;
+    }
+    for (const device of value.devices) {
+      const item = document.createElement('div');
+      item.className = 'list-item bluetooth-device';
+      const info = document.createElement('span');
+      info.textContent = `${device.name || '(无名称)'} | ${device.address} | RSSI ${device.rssi} dBm | ${device.le ? 'BLE' : 'Classic'}`;
+      const actions = document.createElement('div');
+      const addButton = (text, action, enabled = true, danger = false) => {
+        const button = document.createElement('button');
+        button.textContent = text;
+        if (danger) button.className = 'danger';
+        button.onclick = async () => {
+          try {
+            const result = await bluetoothAction(device.address, action, enabled);
+            document.getElementById('bluetooth-result').textContent = JSON.stringify(result, null, 2);
+            await refreshBluetoothDevices();
+          } catch (error) {
+            document.getElementById('bluetooth-result').textContent = JSON.stringify(error, null, 2);
+          }
+        };
+        actions.appendChild(button);
+      };
+      if (device.connected) addButton('断开', 'disconnect', true, true);
+      else addButton('连接', 'connect');
+      if (device.paired) addButton('取消配对', 'cancel_pair', true, true);
+      else addButton('配对', 'pair');
+      addButton(device.trusted ? '取消信任' : '信任', 'trust', !device.trusted);
+      addButton('删除', 'remove', true, true);
+      item.append(info, actions);
+      list.appendChild(item);
+    }
+  } catch (error) {
+    list.textContent = JSON.stringify(error, null, 2);
+  }
+}
+
+/* 开始扫描后定时刷新设备列表，停止扫描时清理定时器。 */
+let bluetoothRefreshTimer = null;
+async function startBluetoothScan() {
+  try {
+    const result = await bluetoothApi('/api/v1/bluetooth/scan/start', { method: 'POST', body: '{}' });
+    document.getElementById('bluetooth-result').textContent = JSON.stringify(result, null, 2);
+    await refreshBluetoothStatus();
+    await refreshBluetoothDevices();
+    if (!bluetoothRefreshTimer) bluetoothRefreshTimer = setInterval(refreshBluetoothDevices, 2000);
+  } catch (error) {
+    document.getElementById('bluetooth-result').textContent = JSON.stringify(error, null, 2);
+  }
+}
+
+async function stopBluetoothScan() {
+  try {
+    const result = await bluetoothApi('/api/v1/bluetooth/scan/stop', { method: 'POST', body: '{}' });
+    document.getElementById('bluetooth-result').textContent = JSON.stringify(result, null, 2);
+  } catch (error) {
+    document.getElementById('bluetooth-result').textContent = JSON.stringify(error, null, 2);
+  }
+  if (bluetoothRefreshTimer) {
+    clearInterval(bluetoothRefreshTimer);
+    bluetoothRefreshTimer = null;
+  }
+  await refreshBluetoothStatus();
+}
+
+/* 只在蓝牙页面打开时读取状态，避免其他硬件页面产生无关轮询。 */
+function initializeBluetoothPage() {
+  document.getElementById('bluetooth-refresh').onclick = refreshBluetoothStatus;
+  document.getElementById('bluetooth-devices-refresh').onclick = refreshBluetoothDevices;
+  document.getElementById('bluetooth-scan-start').onclick = startBluetoothScan;
+  document.getElementById('bluetooth-scan-stop').onclick = stopBluetoothScan;
+}
+
 /* 构造当前 Demo 自带的音频控制面板，页面不再创建 8092 外部 iframe。 */
 function initializeAudioPage() {
   const page = document.getElementById('audio-page');
@@ -261,6 +372,7 @@ document.getElementById('refresh-saved').onclick = refreshSaved;
 document.getElementById('scan').onclick = scan;
 document.getElementById('add-form').onsubmit = addNetwork;
 initializeAudioPage();
+initializeBluetoothPage();
 document.querySelectorAll('.nav-item').forEach((item) => {
   item.onclick = () => switchPage(item.dataset.page);
 });
@@ -271,3 +383,4 @@ document.getElementById('camera-stop').onclick = stopCameraPreview;
 refreshStatus();
 refreshSaved();
 refreshCameraStatus();
+refreshBluetoothStatus();

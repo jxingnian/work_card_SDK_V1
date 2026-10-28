@@ -28,6 +28,7 @@ input, select { box-sizing: border-box; width: 100%; padding: 9px; border-radius
 .list { display: grid; gap: 8px; }
 .list-item { border: 1px solid #334253; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .list-item span { overflow-wrap: anywhere; }
+.bluetooth-device > div { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .danger { background: #a83a43; }
 .page { display: none; }
 .active-page { display: block; }

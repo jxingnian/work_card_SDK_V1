@@ -2,6 +2,7 @@
 #include "camera_native.h"
 #include "audio_native.h"
 #include "wifi_native.h"
+#include "bluetooth_native.h"
 
 #include <csignal>
 #include <cstdint>
@@ -110,7 +111,7 @@ bool json_bool_field(const std::string &json,
 }
 
 /* 读取简单 JSON 对象中的无符号整数，并拒绝负数和溢出值。 */
-bool json_uint_field(const std::string &json, const std::string &key,
+    bool json_uint_field(const std::string &json, const std::string &key,
                     uint32_t default_value, uint32_t *value)
 {
     const std::string marker = "\"" + key + "\"";
@@ -132,6 +133,13 @@ bool json_uint_field(const std::string &json, const std::string &key,
     }
     *value = static_cast<uint32_t>(parsed);
     return true;
+}
+
+/* 从简单 JSON 对象中读取必填字符串，避免蓝牙地址缺失时调用 SDK。 */
+bool required_string_field(const std::string &json, const std::string &key,
+                           std::string *value)
+{
+    return json_string_field(json, key, value) && !value->empty();
 }
 
 /* 构造统一的模块 API 响应，并保留底层命令的可验证错误信息。 */
@@ -207,6 +215,9 @@ public:
         if (!audio_.start(&error_message)) {
             std::fprintf(stderr, "audio start failed: %s\n", error_message.c_str());
         }
+        if (!bluetooth_.start(&error_message)) {
+            std::fprintf(stderr, "bluetooth start failed: %s\n", error_message.c_str());
+        }
     }
 
     HttpResponse handle(const HttpRequest &request)
@@ -217,7 +228,44 @@ public:
         }
         if (request.path == "/api/v1/modules" && request.method == "GET") {
             return {200, "application/json; charset=utf-8",
-                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"},{\"id\":\"audio\",\"name\":\"Audio\",\"state\":\"enabled\"}]}"};
+                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"},{\"id\":\"audio\",\"name\":\"Audio\",\"state\":\"enabled\"},{\"id\":\"bluetooth\",\"name\":\"Bluetooth\",\"state\":\"enabled\"}]}"};
+        }
+        if (request.path == "/api/v1/bluetooth/status" && request.method == "GET") {
+            return {200, "application/json; charset=utf-8", bluetooth_.status_json()};
+        }
+        if (request.path == "/api/v1/bluetooth/devices" && request.method == "GET") {
+            return {200, "application/json; charset=utf-8", bluetooth_.devices_json()};
+        }
+        if (request.path == "/api/v1/bluetooth/scan/start" && request.method == "POST") {
+            std::string error_message;
+            if (!bluetooth_.start_scan(&error_message)) return error_response(409, "BLUETOOTH_SCAN_START_FAILED", error_message);
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/bluetooth/scan/stop" && request.method == "POST") {
+            std::string error_message;
+            if (!bluetooth_.stop_scan(&error_message)) return error_response(409, "BLUETOOTH_SCAN_STOP_FAILED", error_message);
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/bluetooth/action" && request.method == "POST") {
+            std::string action;
+            std::string address;
+            if (!required_string_field(request.body, "action", &action) ||
+                !required_string_field(request.body, "address", &address)) {
+                return error_response(400, "INVALID_REQUEST", "action and address are required");
+            }
+            const bool enabled = json_bool_field(request.body, "enabled", true);
+            std::string error_message;
+            bool success = false;
+            if (action == "pair") success = bluetooth_.pair(address, &error_message);
+            else if (action == "cancel_pair") success = bluetooth_.cancel_pair(address, &error_message);
+            else if (action == "remove") success = bluetooth_.remove(address, &error_message);
+            else if (action == "trust") success = bluetooth_.trust(address, enabled, &error_message);
+            else if (action == "block") success = bluetooth_.block(address, enabled, &error_message);
+            else if (action == "connect") success = bluetooth_.connect(address, &error_message);
+            else if (action == "disconnect") success = bluetooth_.disconnect(address, &error_message);
+            else return error_response(400, "INVALID_ACTION", "unsupported bluetooth action");
+            if (!success) return error_response(409, "BLUETOOTH_ACTION_FAILED", error_message);
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
         }
         if (request.path == "/api/v1/camera/status" && request.method == "GET") {
             return {200, "application/json; charset=utf-8", camera_.status_json()};
@@ -373,6 +421,7 @@ private:
     std::string web_root_;
     NativeCamera camera_;
     NativeAudio audio_;
+    NativeBluetooth bluetooth_;
 };
 
 } // namespace

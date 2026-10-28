@@ -14,6 +14,7 @@
       <button class="nav-item active" data-page="wifi-page">WiFi 与网络</button>
       <button class="nav-item" data-page="audio-page">音频</button>
       <button class="nav-item" data-page="camera-page">摄像头</button>
+      <button class="nav-item" data-page="bluetooth-page">蓝牙</button>
     </aside>
 
     <main class="container">
@@ -90,6 +91,31 @@
         <section class="card camera-preview-card">
           <img id="camera-preview" alt="摄像头实时画面">
           <p id="camera-message" class="muted">等待摄像头图像...</p>
+        </section>
+      </div>
+
+      <div id="bluetooth-page" class="page">
+        <section class="card">
+          <div class="card-title">
+            <h2>蓝牙适配器</h2>
+            <button id="bluetooth-refresh">刷新</button>
+          </div>
+          <pre id="bluetooth-status">正在读取蓝牙状态...</pre>
+        </section>
+        <section class="card">
+          <div class="card-title">
+            <h2>设备扫描</h2>
+            <div>
+              <button id="bluetooth-scan-start">开始扫描</button>
+              <button id="bluetooth-scan-stop" class="danger">停止扫描</button>
+              <button id="bluetooth-devices-refresh">刷新设备</button>
+            </div>
+          </div>
+          <div id="bluetooth-device-list" class="list"></div>
+        </section>
+        <section class="card">
+          <h2>操作结果</h2>
+          <pre id="bluetooth-result">等待蓝牙操作</pre>
         </section>
       </div>
     </main>
