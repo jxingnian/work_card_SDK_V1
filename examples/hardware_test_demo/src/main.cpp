@@ -1,4 +1,5 @@
 #include "http_server.h"
+#include "camera_native.h"
 #include "wifi_native.h"
 
 #include <csignal>
@@ -159,10 +160,18 @@ class HardwareTestApplication {
 public:
     HardwareTestApplication(std::string interface_name,
                             std::string control_path,
-                            std::string web_root)
+                            std::string web_root,
+                            std::string camera_default_config,
+                            std::string camera_runtime_config,
+                            std::string camera_sensor)
         : wifi_(std::move(interface_name), std::move(control_path)),
-          web_root_(std::move(web_root))
+          web_root_(std::move(web_root)),
+          camera_(std::move(camera_default_config),
+                  std::move(camera_runtime_config),
+                  std::move(camera_sensor))
     {
+        std::string error_message;
+        (void)camera_.start(&error_message);
     }
 
     HttpResponse handle(const HttpRequest &request)
@@ -173,7 +182,18 @@ public:
         }
         if (request.path == "/api/v1/modules" && request.method == "GET") {
             return {200, "application/json; charset=utf-8",
-                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"}]}"};
+                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"}]}"};
+        }
+        if (request.path == "/api/v1/camera/status" && request.method == "GET") {
+            return {200, "application/json; charset=utf-8", camera_.status_json()};
+        }
+        if (request.path == "/api/v1/camera/snapshot.jpg" && request.method == "GET") {
+            std::string jpeg_data;
+            std::string error_message;
+            if (!camera_.snapshot(&jpeg_data, &error_message)) {
+                return error_response(503, "CAMERA_SNAPSHOT_FAILED", error_message);
+            }
+            return {200, "image/jpeg", std::move(jpeg_data)};
         }
         if (request.path == "/api/v1/wifi/status" && request.method == "GET") {
             return wifi_response(wifi_.status());
@@ -224,6 +244,7 @@ public:
 private:
     NativeWifi wifi_;
     std::string web_root_;
+    NativeCamera camera_;
 };
 
 } // namespace
@@ -236,6 +257,10 @@ int main(int argc, char **argv)
     std::string interface_name = "wlan0";
     std::string control_path = "/etc/wireless/wpa_supplicant";
     std::string web_root = "web";
+    std::string camera_default_config = "configs/hal_default.json";
+    std::string camera_runtime_config = "configs/hal.json";
+    /* SDK 配置名必须使用 sc2356；实际板端驱动由链接的 fpx1002 库提供。 */
+    std::string camera_sensor = "sc2356";
 
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -247,13 +272,22 @@ int main(int argc, char **argv)
             control_path = argv[++index];
         } else if (argument == "--web-root" && index + 1 < argc) {
             web_root = argv[++index];
+        } else if (argument == "--camera-default" && index + 1 < argc) {
+            camera_default_config = argv[++index];
+        } else if (argument == "--camera-runtime" && index + 1 < argc) {
+            camera_runtime_config = argv[++index];
+        } else if (argument == "--camera-sensor" && index + 1 < argc) {
+            camera_sensor = argv[++index];
         }
     }
     if (port < 1 || port > 65535 || interface_name.empty()) {
         return 2;
     }
 
-    hardware_test::HardwareTestApplication application(interface_name, control_path, web_root);
+    hardware_test::HardwareTestApplication application(interface_name, control_path, web_root,
+                                                        camera_default_config,
+                                                        camera_runtime_config,
+                                                        camera_sensor);
     hardware_test::HttpServer server(port, [&application](const hardware_test::HttpRequest &request) {
         return application.handle(request);
     });

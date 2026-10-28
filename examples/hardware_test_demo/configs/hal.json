@@ -1,0 +1,9 @@
+{
+    "platform": "hi3516cv610",
+    "board": "hongou_lite",
+    "chip_id": 3516610,
+    "sensor": {
+        "name": "sc2356",
+        "config": "sc2356.json"
+    }
+}

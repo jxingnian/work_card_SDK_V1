@@ -83,9 +83,14 @@
         <section class="card camera-launch-card">
           <h2>摄像头测试</h2>
           <p class="muted">网页预览使用 JPEG 帧显示；RTSP 地址继续保留给 VLC、ffplay、PotPlayer 等外部播放器。</p>
-          <button id="open-camera">打开摄像头测试页</button>
+          <button id="camera-start">启动摄像头</button>
+          <button id="camera-stop" class="danger">停止预览</button>
+          <pre id="camera-status">摄像头状态读取中...</pre>
         </section>
-        <iframe id="camera-frame" title="摄像头测试页面"></iframe>
+        <section class="card camera-preview-card">
+          <img id="camera-preview" alt="摄像头实时画面">
+          <p id="camera-message" class="muted">等待摄像头图像...</p>
+        </section>
       </div>
     </main>
   </div>

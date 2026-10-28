@@ -31,11 +31,56 @@ function switchPage(pageId) {
       frame.src = `${window.location.protocol}//${window.location.hostname}:8092/`;
     }
   }
-  if (pageId === 'camera-page') {
-    const frame = document.getElementById('camera-frame');
-    if (!frame.src) {
-      frame.src = `${window.location.protocol}//${window.location.hostname}:8093/`;
-    }
+}
+
+/* 摄像头页面直接调用本 Demo 的同源接口，避免依赖第二个服务进程。 */
+let cameraPreviewTimer = null;
+let cameraPreviewBusy = false;
+
+/* 读取摄像头实际状态，页面显示固定的 640x480@5 FPS 配置。 */
+async function refreshCameraStatus() {
+  try {
+    const value = await api('/api/v1/camera/status');
+    document.getElementById('camera-status').textContent = JSON.stringify(value, null, 2);
+  } catch (error) {
+    document.getElementById('camera-status').textContent = JSON.stringify(error, null, 2);
+  }
+}
+
+/* 每 200 ms 获取一张 JPEG，显示刷新频率与摄像头 5 FPS 输出一致。 */
+async function refreshCameraFrame() {
+  if (cameraPreviewBusy) return;
+  cameraPreviewBusy = true;
+  try {
+    const response = await fetch(`/api/v1/camera/snapshot.jpg?ts=${Date.now()}`, {
+      cache: 'no-store'
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const image = document.getElementById('camera-preview');
+    const oldUrl = image.dataset.objectUrl;
+    const newUrl = URL.createObjectURL(blob);
+    image.onload = () => { if (oldUrl) URL.revokeObjectURL(oldUrl); };
+    image.src = newUrl;
+    image.dataset.objectUrl = newUrl;
+    document.getElementById('camera-message').textContent = '摄像头输出正常：640×480，5 FPS';
+  } catch (error) {
+    document.getElementById('camera-message').textContent = `摄像头图像获取失败：${error.message}`;
+  } finally {
+    cameraPreviewBusy = false;
+  }
+}
+
+function startCameraPreview() {
+  if (cameraPreviewTimer) return;
+  refreshCameraFrame();
+  cameraPreviewTimer = setInterval(refreshCameraFrame, 200);
+}
+
+function stopCameraPreview() {
+  if (cameraPreviewTimer) {
+    clearInterval(cameraPreviewTimer);
+    cameraPreviewTimer = null;
   }
 }
 
@@ -151,6 +196,9 @@ document.querySelectorAll('.nav-item').forEach((item) => {
   item.onclick = () => switchPage(item.dataset.page);
 });
 document.getElementById('open-audio').onclick = () => switchPage('audio-page');
-document.getElementById('open-camera').onclick = () => switchPage('camera-page');
+document.getElementById('camera-start').onclick = () => { startCameraPreview(); refreshCameraStatus(); };
+document.getElementById('camera-stop').onclick = stopCameraPreview;
 refreshStatus();
 refreshSaved();
+refreshCameraStatus();
+startCameraPreview();
