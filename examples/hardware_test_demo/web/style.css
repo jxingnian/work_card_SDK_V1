@@ -45,6 +45,9 @@ input, select { box-sizing: border-box; width: 100%; padding: 9px; border-radius
 .protocol-grid > div { border: 1px solid #334253; border-radius: 6px; padding: 12px; }
 .protocol-grid h3 { margin-top: 0; }
 .protocol-grid button { margin: 4px 4px 0 0; }
+.location-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.location-grid > div { border: 1px solid #334253; border-radius: 6px; padding: 12px; }
+.location-grid h3 { margin-top: 0; }
 .danger { background: #a83a43; }
 .page { display: none; }
 .active-page { display: block; }

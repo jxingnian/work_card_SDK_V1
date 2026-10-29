@@ -3,6 +3,7 @@
 #include "audio_native.h"
 #include "wifi_native.h"
 #include "bluetooth_native.h"
+#include "network_native.h"
 
 #include <csignal>
 #include <cstdint>
@@ -159,6 +160,20 @@ HttpResponse wifi_response(const WifiResult &result)
     return {result.http_status, "application/json; charset=utf-8", body.str()};
 }
 
+/* 把 4G/以太网测试结果转换成统一的 JSON 响应，保留明确错误阶段。 */
+HttpResponse network_response(const NetworkResult &result)
+{
+    std::ostringstream body;
+    body << "{\"ok\":" << (result.ok ? "true" : "false")
+         << ",\"code\":\"" << json_escape(result.code)
+         << "\",\"message\":\"" << json_escape(result.message) << "\"";
+    if (result.ok) {
+        body << ",\"data\":" << result.data_json;
+    }
+    body << '}';
+    return {result.http_status, "application/json; charset=utf-8", body.str()};
+}
+
 /* 构造不依赖底层硬件命令的 HTTP 错误响应。 */
 HttpResponse error_response(int status, const std::string &code, const std::string &message)
 {
@@ -202,7 +217,7 @@ public:
                             std::string camera_sensor,
                             std::string audio_default_config,
                             std::string audio_runtime_config)
-        : wifi_(std::move(interface_name), std::move(control_path)),
+        : wifi_(interface_name, std::move(control_path)),
           web_root_(std::move(web_root)),
           /* 测试语音放在 Demo 包的 audio 目录，跟随安装目录定位，避免依赖其他 Demo。 */
           bluetooth_test_audio_path_(audio_path_from_web_root(web_root_)),
@@ -210,7 +225,9 @@ public:
                   std::move(camera_runtime_config),
                   std::move(camera_sensor)),
           audio_(std::move(audio_default_config),
-                 std::move(audio_runtime_config))
+                 std::move(audio_runtime_config)),
+          /* CH390D 通过独立 eth0 给主控提供 4G 网络，不能复用 WiFi 的 wlan0。 */
+          network_("eth0")
     {
         std::string error_message;
         (void)camera_.start(&error_message);
@@ -230,7 +247,32 @@ public:
         }
         if (request.path == "/api/v1/modules" && request.method == "GET") {
             return {200, "application/json; charset=utf-8",
-                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"},{\"id\":\"audio\",\"name\":\"Audio\",\"state\":\"enabled\"},{\"id\":\"bluetooth\",\"name\":\"Bluetooth\",\"state\":\"enabled\"}]}"};
+                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"4g\",\"name\":\"4G 模组\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"},{\"id\":\"audio\",\"name\":\"Audio\",\"state\":\"enabled\"},{\"id\":\"bluetooth\",\"name\":\"Bluetooth\",\"state\":\"enabled\"}]}"};
+        }
+        if (request.path == "/api/v1/ethernet/status" && request.method == "GET") {
+            return network_response(network_.ethernet_status());
+        }
+        if (request.path == "/api/v1/4g/status" && request.method == "GET") {
+            return network_response(network_.ethernet_status());
+        }
+        if (request.path == "/api/v1/4g/location" && request.method == "GET") {
+            return network_response(network_.location());
+        }
+        if (request.path == "/api/v1/4g/location/refresh" && request.method == "POST") {
+            return network_response(network_.location());
+        }
+        if (request.path == "/api/v1/ethernet/speed/start" && request.method == "POST") {
+            std::string url;
+            if (!json_string_field(request.body, "url", &url) || url.empty()) {
+                return error_response(400, "INVALID_REQUEST", "url is required");
+            }
+            return network_response(network_.start_speed_test(url));
+        }
+        if (request.path == "/api/v1/ethernet/speed/stop" && request.method == "POST") {
+            return network_response(network_.stop_speed_test());
+        }
+        if (request.path == "/api/v1/ethernet/speed/status" && request.method == "GET") {
+            return network_response(network_.speed_status());
         }
         if (request.path == "/api/v1/bluetooth/status" && request.method == "GET") {
             return {200, "application/json; charset=utf-8", bluetooth_.status_json()};
@@ -534,6 +576,7 @@ private:
     NativeCamera camera_;
     NativeAudio audio_;
     NativeBluetooth bluetooth_;
+    NativeNetwork network_;
 };
 
 } // namespace

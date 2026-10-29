@@ -12,6 +12,7 @@
       <h1>硬件测试</h1>
       <p class="muted">板端硬件验证工具</p>
       <button class="nav-item active" data-page="wifi-page">WiFi 与网络</button>
+      <button class="nav-item" data-page="network-4g-page">4G 模组</button>
       <button class="nav-item" data-page="audio-page">音频</button>
       <button class="nav-item" data-page="camera-page">摄像头</button>
       <button class="nav-item" data-page="bluetooth-page">蓝牙</button>
@@ -68,6 +69,42 @@
       <h2>操作结果</h2>
       <pre id="result-output">等待操作</pre>
     </section>
+      </div>
+
+      <div id="network-4g-page" class="page">
+        <section class="card">
+          <div class="card-title">
+            <h2>CH390D 以太网状态</h2>
+            <button id="network-4g-refresh">刷新状态</button>
+          </div>
+          <p id="network-4g-action-status" class="action-status" aria-live="polite">等待操作</p>
+          <pre id="network-4g-status">正在读取以太网状态...</pre>
+        </section>
+        <section class="card">
+          <div class="card-title">
+            <h2>定位信息</h2>
+            <button id="network-location-refresh">获取定位</button>
+          </div>
+          <p class="muted">定位请求通过 CH390D 的 192.168.5.1:8080 接口获取，GNSS 和 LBS 结果分开显示。</p>
+          <div class="location-grid">
+            <div><h3>GNSS</h3><pre id="network-gnss-location">等待定位</pre></div>
+            <div><h3>LBS 基站定位</h3><pre id="network-lbs-location">等待定位</pre></div>
+          </div>
+          <pre id="network-location-result">等待定位操作</pre>
+        </section>
+        <section class="card">
+          <div class="card-title">
+            <h2>以太网口测速</h2>
+            <button id="network-speed-start">开始测速</button>
+            <button id="network-speed-stop" class="danger">停止测速</button>
+          </div>
+          <label>HTTP 下载测试地址
+            <input id="network-speed-url" value="http://speedtest.tele2.net/10MB.zip">
+          </label>
+          <p class="muted">测速任务绑定 CH390D 以太网出口；测速服务器必须能通过 HTTP 从板端访问。</p>
+          <p id="network-speed-action-status" class="action-status" aria-live="polite">等待测速</p>
+          <pre id="network-speed-result">等待测速结果</pre>
+        </section>
       </div>
 
       <div id="audio-page" class="page">

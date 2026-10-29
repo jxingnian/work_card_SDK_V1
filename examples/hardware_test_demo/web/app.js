@@ -447,6 +447,115 @@ async function refreshStatus() {
   }
 }
 
+/* 显示 4G 页面操作状态，让网口、定位和测速按钮都有即时反馈。 */
+function setNetworkActionStatus(message, kind = '') {
+  const status = document.getElementById('network-4g-action-status');
+  if (!status) return;
+  status.textContent = message;
+  status.className = `action-status${kind ? ` ${kind}` : ''}`;
+}
+
+/* 读取 CH390D 连接的以太网口状态，不改变任何网络配置。 */
+async function refreshNetworkStatus() {
+  setNetworkActionStatus('正在读取以太网状态...', 'busy');
+  try {
+    const value = await api('/api/v1/ethernet/status');
+    document.getElementById('network-4g-status').textContent = JSON.stringify(value.data, null, 2);
+    setNetworkActionStatus(value.data.link_up ? '以太网链路已连接' : '以太网链路未连接', value.data.link_up ? 'success' : 'error');
+  } catch (error) {
+    document.getElementById('network-4g-status').textContent = JSON.stringify(error, null, 2);
+    setNetworkActionStatus(`以太网状态读取失败：${error.message || '请查看结果'}`, 'error');
+  }
+}
+
+/* 分开展示 GNSS 和 LBS 结果，避免把高精度和基站定位混为一个位置。 */
+function renderLocation(value) {
+  const data = value.data || {};
+  document.getElementById('network-gnss-location').textContent = JSON.stringify(data.gnss || { valid: false, message: '无 GNSS 数据' }, null, 2);
+  document.getElementById('network-lbs-location').textContent = JSON.stringify(data.lbs || { valid: false, message: '无 LBS 数据' }, null, 2);
+  document.getElementById('network-location-result').textContent = JSON.stringify(value, null, 2);
+}
+
+/* 请求 CH390D 定位接口，成功后同时刷新 GNSS、LBS 和原始响应。 */
+async function refreshNetworkLocation() {
+  setNetworkActionStatus('正在请求 CH390D 定位...', 'busy');
+  try {
+    const value = await api('/api/v1/4g/location/refresh', { method: 'POST', body: '{}' });
+    renderLocation(value);
+    setNetworkActionStatus('定位信息获取成功', 'success');
+  } catch (error) {
+    document.getElementById('network-location-result').textContent = JSON.stringify(error, null, 2);
+    setNetworkActionStatus(`定位获取失败：${error.message || '请检查 CH390D 网络'}`, 'error');
+  }
+}
+
+let networkSpeedTimer = null;
+let networkSpeedBusy = false;
+
+/* 轮询后台测速状态，显示实时字节数、速度和最终结果。 */
+async function refreshNetworkSpeed() {
+  if (networkSpeedBusy) return;
+  networkSpeedBusy = true;
+  try {
+    const value = await api('/api/v1/ethernet/speed/status');
+    document.getElementById('network-speed-result').textContent = JSON.stringify(value.data, null, 2);
+    if (value.data.running) {
+      document.getElementById('network-speed-action-status').textContent = '测速进行中，请等待或点击停止';
+    } else if (value.data.stage === 'finished') {
+      document.getElementById('network-speed-action-status').textContent = '测速完成';
+      document.getElementById('network-speed-action-status').className = 'action-status success';
+      if (networkSpeedTimer) { clearInterval(networkSpeedTimer); networkSpeedTimer = null; }
+    }
+  } catch (error) {
+    document.getElementById('network-speed-result').textContent = JSON.stringify(error, null, 2);
+  } finally {
+    networkSpeedBusy = false;
+  }
+}
+
+/* 启动绑定 eth0 的后台下载测速任务，避免重复启动测速线程。 */
+async function startNetworkSpeed() {
+  const button = document.getElementById('network-speed-start');
+  button.disabled = true;
+  document.getElementById('network-speed-action-status').textContent = '正在启动测速...';
+  document.getElementById('network-speed-action-status').className = 'action-status busy';
+  try {
+    await api('/api/v1/ethernet/speed/start', {
+      method: 'POST',
+      body: JSON.stringify({ url: document.getElementById('network-speed-url').value.trim() })
+    });
+    if (!networkSpeedTimer) networkSpeedTimer = setInterval(refreshNetworkSpeed, 500);
+    await refreshNetworkSpeed();
+  } catch (error) {
+    document.getElementById('network-speed-result').textContent = JSON.stringify(error, null, 2);
+    document.getElementById('network-speed-action-status').textContent = `测速启动失败：${error.message || '请查看结果'}`;
+    document.getElementById('network-speed-action-status').className = 'action-status error';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/* 请求停止测速，后台线程会在下一次读操作时退出并返回已测量数据。 */
+async function stopNetworkSpeed() {
+  try {
+    await api('/api/v1/ethernet/speed/stop', { method: 'POST', body: '{}' });
+    document.getElementById('network-speed-action-status').textContent = '正在停止测速...';
+    document.getElementById('network-speed-action-status').className = 'action-status busy';
+    await refreshNetworkSpeed();
+  } catch (error) {
+    document.getElementById('network-speed-result').textContent = JSON.stringify(error, null, 2);
+  }
+}
+
+/* 初始化 4G 页面按钮；页面切换不触发网络配置，只执行读状态和测试请求。 */
+function initializeNetworkPage() {
+  document.getElementById('network-4g-refresh').onclick = refreshNetworkStatus;
+  document.getElementById('network-location-refresh').onclick = refreshNetworkLocation;
+  document.getElementById('network-speed-start').onclick = startNetworkSpeed;
+  document.getElementById('network-speed-stop').onclick = stopNetworkSpeed;
+  refreshNetworkStatus();
+}
+
 /* 读取保存网络列表；后端不会返回密码。 */
 async function refreshSaved() {
   const list = document.getElementById('saved-list');
@@ -544,6 +653,7 @@ document.getElementById('refresh-status').onclick = refreshStatus;
 document.getElementById('refresh-saved').onclick = refreshSaved;
 document.getElementById('scan').onclick = scan;
 document.getElementById('add-form').onsubmit = addNetwork;
+initializeNetworkPage();
 initializeAudioPage();
 initializeBluetoothPage();
 document.querySelectorAll('.nav-item').forEach((item) => {

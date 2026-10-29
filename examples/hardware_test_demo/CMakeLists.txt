@@ -18,6 +18,7 @@ add_executable(hardware_test_demo
     src/camera_native.cpp
     src/audio_native.cpp
     src/bluetooth_native.cpp
+    src/network_native.cpp
 )
 
 target_include_directories(hardware_test_demo PRIVATE
