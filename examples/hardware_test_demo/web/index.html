@@ -16,6 +16,7 @@
       <button class="nav-item" data-page="audio-page">音频</button>
       <button class="nav-item" data-page="camera-page">摄像头</button>
       <button class="nav-item" data-page="bluetooth-page">蓝牙</button>
+      <button class="nav-item" data-page="key-led-page">按键与 LED</button>
     </aside>
 
     <main class="container">
@@ -205,6 +206,30 @@
         <section class="card">
           <h2>操作结果</h2>
           <pre id="bluetooth-result">等待蓝牙操作</pre>
+        </section>
+      </div>
+
+      <div id="key-led-page" class="page">
+        <section class="card">
+          <div class="card-title">
+            <h2>按键测试</h2>
+            <button id="key-refresh">刷新状态</button>
+          </div>
+          <p class="muted">按键事件由 ehal_key 监听，网页每 500 ms 读取一次状态和事件计数。</p>
+          <div id="key-list" class="hardware-grid"></div>
+          <h3>最近按键事件</h3>
+          <pre id="key-events">等待按键事件</pre>
+        </section>
+        <section class="card">
+          <div class="card-title">
+            <h2>LED 测试</h2>
+            <button id="led-refresh">刷新状态</button>
+          </div>
+          <p class="muted">LED 通过 Linux LED class 的 brightness 节点控制，当前节点由启动参数 --led-path 指定。</p>
+          <pre id="led-status">正在读取 LED 状态...</pre>
+          <button id="led-on">点亮 LED</button>
+          <button id="led-off" class="danger">熄灭 LED</button>
+          <p id="key-led-result" class="action-status" aria-live="polite">等待操作</p>
         </section>
       </div>
     </main>

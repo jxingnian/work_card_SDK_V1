@@ -19,6 +19,8 @@ add_executable(hardware_test_demo
     src/audio_native.cpp
     src/bluetooth_native.cpp
     src/network_native.cpp
+    src/key_native.cpp
+    src/led_native.cpp
 )
 
 target_include_directories(hardware_test_demo PRIVATE
@@ -31,7 +33,7 @@ target_link_directories(hardware_test_demo PRIVATE "${SDK_LIB_DIR}")
 
 target_link_libraries(hardware_test_demo PRIVATE
     -Wl,--no-as-needed
-    ehal_camera ehal_audio ehal_bluetooth hal jsoncpp
+    ehal_camera ehal_audio ehal_bluetooth ehal_key hal jsoncpp
     ss_mpi ss_mpi_sysbind ss_mpi_sysmem ss_mpi_ae ss_mpi_isp ot_mpi_isp
     ss_mpi_awb dehaze extend_stats drc ldci bnr calcflicker ir_auto acs securec
     sns_fpx1002 ss_mpi_aibnr svp_acl ss_mpi_km protobuf-c ot_osal ss_mpi_ive

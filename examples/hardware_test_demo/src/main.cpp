@@ -4,6 +4,8 @@
 #include "wifi_native.h"
 #include "bluetooth_native.h"
 #include "network_native.h"
+#include "key_native.h"
+#include "led_native.h"
 
 #include <csignal>
 #include <cstdint>
@@ -216,7 +218,9 @@ public:
                             std::string camera_runtime_config,
                             std::string camera_sensor,
                             std::string audio_default_config,
-                            std::string audio_runtime_config)
+                            std::string audio_runtime_config,
+                            std::string key_device_name,
+                            std::string led_brightness_path)
         : wifi_(interface_name, std::move(control_path)),
           web_root_(std::move(web_root)),
           /* 测试语音放在 Demo 包的 audio 目录，跟随安装目录定位，避免依赖其他 Demo。 */
@@ -226,6 +230,8 @@ public:
                   std::move(camera_sensor)),
           audio_(std::move(audio_default_config),
                  std::move(audio_runtime_config)),
+          key_(std::move(key_device_name)),
+          led_(std::move(led_brightness_path)),
           /* CH390D 通过独立 eth0 给主控提供 4G 网络，不能复用 WiFi 的 wlan0。 */
           network_("eth0")
     {
@@ -237,6 +243,9 @@ public:
         if (!bluetooth_.start(&error_message)) {
             std::fprintf(stderr, "bluetooth start failed: %s\n", error_message.c_str());
         }
+        if (!key_.start(&error_message)) {
+            std::fprintf(stderr, "key start failed: %s\n", error_message.c_str());
+        }
     }
 
     HttpResponse handle(const HttpRequest &request)
@@ -245,9 +254,23 @@ public:
             return {200, "application/json; charset=utf-8",
                     "{\"ok\":true,\"service\":\"hardware_test_demo\"}"};
         }
+        if (request.path == "/api/v1/key/status" && request.method == "GET") {
+            return {200, "application/json; charset=utf-8", key_.status_json()};
+        }
+        if (request.path == "/api/v1/led/status" && request.method == "GET") {
+            return {200, "application/json; charset=utf-8", led_.status_json()};
+        }
+        if (request.path == "/api/v1/led/set" && request.method == "POST") {
+            const bool enabled = json_bool_field(request.body, "enabled", false);
+            std::string error_message;
+            if (!led_.set(enabled, &error_message)) {
+                return error_response(409, "LED_SET_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", led_.status_json()};
+        }
         if (request.path == "/api/v1/modules" && request.method == "GET") {
             return {200, "application/json; charset=utf-8",
-                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"4g\",\"name\":\"4G 模组\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"},{\"id\":\"audio\",\"name\":\"Audio\",\"state\":\"enabled\"},{\"id\":\"bluetooth\",\"name\":\"Bluetooth\",\"state\":\"enabled\"}]}"};
+                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"4g\",\"name\":\"4G 模组\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"},{\"id\":\"audio\",\"name\":\"Audio\",\"state\":\"enabled\"},{\"id\":\"bluetooth\",\"name\":\"Bluetooth\",\"state\":\"enabled\"},{\"id\":\"key_led\",\"name\":\"按键与 LED\",\"state\":\"enabled\"}]}"};
         }
         if (request.path == "/api/v1/ethernet/status" && request.method == "GET") {
             return network_response(network_.ethernet_status());
@@ -576,6 +599,8 @@ private:
     NativeCamera camera_;
     NativeAudio audio_;
     NativeBluetooth bluetooth_;
+    NativeKey key_;
+    NativeLed led_;
     NativeNetwork network_;
 };
 
@@ -595,6 +620,8 @@ int main(int argc, char **argv)
     std::string camera_sensor = "sc2356";
     std::string audio_default_config = "configs/hal_default.json";
     std::string audio_runtime_config = "configs/hal.json";
+    std::string key_device_name = "board-keys";
+    std::string led_brightness_path = "/sys/class/leds/status/brightness";
 
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -612,6 +639,10 @@ int main(int argc, char **argv)
             camera_runtime_config = argv[++index];
         } else if (argument == "--camera-sensor" && index + 1 < argc) {
             camera_sensor = argv[++index];
+        } else if (argument == "--key-device-name" && index + 1 < argc) {
+            key_device_name = argv[++index];
+        } else if (argument == "--led-path" && index + 1 < argc) {
+            led_brightness_path = argv[++index];
         }
     }
     if (port < 1 || port > 65535 || interface_name.empty()) {
@@ -623,7 +654,9 @@ int main(int argc, char **argv)
                                                         camera_runtime_config,
                                                         camera_sensor,
                                                         audio_default_config,
-                                                        audio_runtime_config);
+                                                        audio_runtime_config,
+                                                        key_device_name,
+                                                        led_brightness_path);
     hardware_test::HttpServer server(port, [&application](const hardware_test::HttpRequest &request) {
         return application.handle(request);
     });

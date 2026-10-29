@@ -42,6 +42,30 @@ sh run_hardware_test_demo.sh
 http://<板端实际地址>:8090/
 ```
 
+## 按键与 LED 测试
+
+网页侧边栏中的“按键与 LED”页面包含以下功能：
+
+- 按键使用 SDK `ehal_key` 监听 `board-keys` 输入设备，显示 `function`、`volume_up`、`power`、`volume_down` 的按下、释放、长按计数和最近事件。
+- LED 使用 Linux LED class 的 `brightness` 节点，网页可以点亮、熄灭并读取内核节点实际值。
+
+接口如下：
+
+```text
+GET  /api/v1/key/status
+GET  /api/v1/led/status
+POST /api/v1/led/set       body: {"enabled":true|false}
+```
+
+启动参数如下：
+
+```text
+--key-device-name board-keys
+--led-path /sys/class/leds/status/brightness
+```
+
+如果板端 LED 的 Linux 节点名称不是 `status`，通过 `--led-path` 传入实际 `brightness` 文件；程序启动日志会明确报告按键设备打开结果，网页 LED 状态会明确报告节点是否可读写。
+
 摄像头接口：
 
 ```text

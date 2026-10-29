@@ -31,6 +31,72 @@ function switchPage(pageId) {
   } else {
     stopCameraPreview();
   }
+  updateKeyLedPolling(pageId);
+}
+
+/* 刷新按键状态卡片，状态字段直接对应 ehal_key 返回的计数。 */
+async function refreshKeyStatus() {
+  try {
+    const value = await api('/api/v1/key/status');
+    const list = document.getElementById('key-list');
+    list.replaceChildren();
+    for (const key of value.keys) {
+      const item = document.createElement('div');
+      item.className = `hardware-item${key.pressed ? ' pressed' : ''}`;
+      item.innerHTML = `<h3>${key.name}</h3><p>当前：${key.pressed ? '按下' : '释放'}</p>` +
+        `<p>按下 ${key.press_count} 次</p><p>释放 ${key.release_count} 次</p>` +
+        `<p>长按 ${key.long_press_count} 次</p>`;
+      list.appendChild(item);
+    }
+    document.getElementById('key-events').textContent = value.events.length === 0 ?
+      '暂无事件' : value.events.map((event) =>
+        `${event.key} | ${event.type} | ${event.duration_ms} ms`).join('\n');
+  } catch (error) {
+    document.getElementById('key-events').textContent = JSON.stringify(error, null, 2);
+  }
+}
+
+/* 读取 LED 节点的真实状态，避免只显示网页按钮状态。 */
+async function refreshLedStatus() {
+  try {
+    const value = await api('/api/v1/led/status');
+    document.getElementById('led-status').textContent = JSON.stringify(value, null, 2);
+  } catch (error) {
+    document.getElementById('led-status').textContent = JSON.stringify(error, null, 2);
+  }
+}
+
+/* 写入 LED 后立即读取节点，确保页面显示的是驱动实际状态。 */
+async function setLed(enabled) {
+  const result = document.getElementById('key-led-result');
+  result.textContent = enabled ? '正在点亮 LED...' : '正在熄灭 LED...';
+  result.className = 'action-status busy';
+  try {
+    await api('/api/v1/led/set', { method: 'POST', body: JSON.stringify({ enabled }) });
+    result.textContent = enabled ? 'LED 已点亮' : 'LED 已熄灭';
+    result.className = 'action-status success';
+    await refreshLedStatus();
+  } catch (error) {
+    result.textContent = `LED 操作失败：${error.message || '请查看状态'}`;
+    result.className = 'action-status error';
+    await refreshLedStatus();
+  }
+}
+
+/* 按键页面进入后持续读取状态，离开页面停止轮询以减少板端请求。 */
+let keyLedTimer = null;
+function updateKeyLedPolling(pageId) {
+  if (pageId === 'key-led-page') {
+    refreshKeyStatus();
+    refreshLedStatus();
+    if (!keyLedTimer) keyLedTimer = setInterval(() => {
+      refreshKeyStatus();
+      refreshLedStatus();
+    }, 500);
+  } else if (keyLedTimer) {
+    clearInterval(keyLedTimer);
+    keyLedTimer = null;
+  }
 }
 
 /* 摄像头页面直接调用本 Demo 的同源接口，避免依赖第二个服务进程。 */
@@ -663,6 +729,10 @@ const openAudio = document.getElementById('open-audio');
 if (openAudio) openAudio.onclick = () => switchPage('audio-page');
 document.getElementById('camera-start').onclick = () => { startCameraPreview(); refreshCameraStatus(); };
 document.getElementById('camera-stop').onclick = stopCameraPreview;
+document.getElementById('key-refresh').onclick = refreshKeyStatus;
+document.getElementById('led-refresh').onclick = refreshLedStatus;
+document.getElementById('led-on').onclick = () => setLed(true);
+document.getElementById('led-off').onclick = () => setLed(false);
 refreshStatus();
 refreshSaved();
 refreshCameraStatus();
