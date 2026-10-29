@@ -20,6 +20,18 @@ h2 { font-size: 20px; }
 pre { white-space: pre-wrap; word-break: break-word; background: #0b1015; border-radius: 6px; padding: 12px; min-height: 36px; }
 button { border: 0; border-radius: 5px; padding: 8px 14px; background: #2777d4; color: white; cursor: pointer; }
 button:hover { background: #3d8ae4; }
+button:disabled { opacity: 0.65; cursor: wait; }
+.scan-indicator { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; padding: 7px 10px; border-radius: 5px; color: #9aaaba; background: #10161d; border: 1px solid #334253; }
+.scan-indicator.active { color: #8fe3a5; border-color: #388453; }
+.scan-dot { width: 9px; height: 9px; border-radius: 50%; background: #687584; }
+.scan-indicator.active .scan-dot { background: #43d96a; animation: bluetooth-scan-pulse 1s ease-in-out infinite; }
+.action-status { min-height: 20px; margin: 10px 0 0; color: #a9b8c7; }
+.action-status.busy { color: #ffd479; }
+.action-status.success { color: #8fe3a5; }
+.action-status.error { color: #ff9b9b; }
+.button-busy::before { content: '⟳ '; display: inline-block; animation: bluetooth-button-spin 0.9s linear infinite; }
+@keyframes bluetooth-scan-pulse { 50% { opacity: 0.35; transform: scale(0.7); } }
+@keyframes bluetooth-button-spin { to { transform: rotate(360deg); } }
 form { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; align-items: end; }
 label { display: flex; flex-direction: column; gap: 5px; color: #b8c6d4; }
 input, select { box-sizing: border-box; width: 100%; padding: 9px; border-radius: 5px; border: 1px solid #445465; background: #10161d; color: #eef4fa; }
@@ -29,6 +41,10 @@ input, select { box-sizing: border-box; width: 100%; padding: 9px; border-radius
 .list-item { border: 1px solid #334253; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .list-item span { overflow-wrap: anywhere; }
 .bluetooth-device > div { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.protocol-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.protocol-grid > div { border: 1px solid #334253; border-radius: 6px; padding: 12px; }
+.protocol-grid h3 { margin-top: 0; }
+.protocol-grid button { margin: 4px 4px 0 0; }
 .danger { background: #a83a43; }
 .page { display: none; }
 .active-page { display: block; }

@@ -73,3 +73,19 @@ POST /api/v1/bluetooth/action
 ```
 
 `/api/v1/bluetooth/action` 的 JSON 参数为 `action`、`address`；信任和阻止操作还需要 `enabled` 布尔值。
+
+第二阶段协议接口：
+
+```text
+POST /api/v1/bluetooth/gatt
+POST /api/v1/bluetooth/a2dp
+POST /api/v1/bluetooth/hfp
+POST /api/v1/bluetooth/avrcp
+POST /api/v1/bluetooth/test_voice
+```
+
+GATT 写入数据使用偶数长度十六进制字符串 `data_hex`；GATT 的发现、读取和通知接口会返回 SDK 最近一次输出。A2DP、HFP 和 AVRCP 操作都要求先填写目标设备地址，并将厂家 SDK 返回的错误码直接显示在操作结果中。
+
+`/api/v1/bluetooth/test_voice` 只需要传入已连接的经典蓝牙 A2DP 设备地址，Demo 会播放自带的 `audio/bluetooth-test.wav` 测试语音，不需要再填写板端文件路径。
+
+网页扫描列表中的“一键配对并连接”会按配对、信任、连接顺序执行，并自动将成功连接的设备地址设置为当前测试目标。

@@ -99,11 +99,33 @@ async function bluetoothApi(path, options = {}) {
 /* 刷新蓝牙适配器状态。 */
 async function refreshBluetoothStatus() {
   try {
-    document.getElementById('bluetooth-status').textContent =
-      JSON.stringify(await bluetoothApi('/api/v1/bluetooth/status'), null, 2);
+    const value = await bluetoothApi('/api/v1/bluetooth/status');
+    document.getElementById('bluetooth-status').textContent = JSON.stringify(value, null, 2);
+    setBluetoothScanIndicator(Boolean(value.scanning));
   } catch (error) {
     document.getElementById('bluetooth-status').textContent = JSON.stringify(error, null, 2);
+    setBluetoothScanIndicator(false);
   }
+}
+
+/* 显示蓝牙扫描的真实状态，让操作者能立即确认按钮是否已经生效。 */
+function setBluetoothScanIndicator(scanning) {
+  const indicator = document.getElementById('bluetooth-scan-indicator');
+  if (!indicator) return;
+  indicator.classList.toggle('active', scanning);
+  indicator.innerHTML = `<span class="scan-dot"></span>${scanning ? '正在扫描' : '未扫描'}`;
+  const start = document.getElementById('bluetooth-scan-start');
+  const stop = document.getElementById('bluetooth-scan-stop');
+  if (start) start.disabled = scanning;
+  if (stop) stop.disabled = !scanning;
+}
+
+/* 统一显示蓝牙操作的发送、成功和失败状态。 */
+function setBluetoothActionStatus(message, kind = '') {
+  const status = document.getElementById('bluetooth-action-status');
+  if (!status) return;
+  status.textContent = message;
+  status.className = `action-status${kind ? ` ${kind}` : ''}`;
 }
 
 /* 根据设备状态生成基础管理按钮，并将地址作为 JSON 参数发送到后端。 */
@@ -114,8 +136,39 @@ function bluetoothAction(address, action, enabled = true) {
   });
 }
 
+/* 将扫描到的设备设置为当前协议和音频测试目标，避免操作者手动复制 MAC 地址。 */
+function selectBluetoothTarget(address) {
+  document.getElementById('bluetooth-target-address').value = address;
+}
+
+/* 一次完成配对、信任和连接，保证后续 A2DP 播放使用当前设备。 */
+async function pairAndConnectBluetoothDevice(device) {
+  const resultElement = document.getElementById('bluetooth-result');
+  selectBluetoothTarget(device.address);
+  try {
+    if (!device.connected) {
+      /* 已配对设备不重复执行 pair，避免 BlueZ 返回重复配对错误。 */
+      if (!device.paired) await bluetoothAction(device.address, 'pair');
+      await bluetoothAction(device.address, 'trust', true);
+      await bluetoothAction(device.address, 'connect');
+    }
+    resultElement.textContent = JSON.stringify({
+      ok: true,
+      message: '设备已配对并连接，已设为当前蓝牙音频目标',
+      address: device.address
+    }, null, 2);
+    await refreshBluetoothDevices();
+  } catch (error) {
+    resultElement.textContent = JSON.stringify(error, null, 2);
+  }
+}
+
 /* 刷新扫描设备列表，并显示配对、信任、连接和删除操作。 */
+let bluetoothDevicesRefreshing = false;
 async function refreshBluetoothDevices() {
+  /* 定时器不能在上一次查询未完成时再次发起查询，避免请求堆积。 */
+  if (bluetoothDevicesRefreshing) return;
+  bluetoothDevicesRefreshing = true;
   const list = document.getElementById('bluetooth-device-list');
   try {
     const value = await bluetoothApi('/api/v1/bluetooth/devices');
@@ -145,6 +198,10 @@ async function refreshBluetoothDevices() {
         };
         actions.appendChild(button);
       };
+      const pairConnectButton = document.createElement('button');
+      pairConnectButton.textContent = device.connected ? '选择当前设备' : '一键配对并连接';
+      pairConnectButton.onclick = () => pairAndConnectBluetoothDevice(device);
+      actions.appendChild(pairConnectButton);
       if (device.connected) addButton('断开', 'disconnect', true, true);
       else addButton('连接', 'connect');
       if (device.paired) addButton('取消配对', 'cancel_pair', true, true);
@@ -156,35 +213,67 @@ async function refreshBluetoothDevices() {
     }
   } catch (error) {
     list.textContent = JSON.stringify(error, null, 2);
+  } finally {
+    bluetoothDevicesRefreshing = false;
   }
 }
 
 /* 开始扫描后定时刷新设备列表，停止扫描时清理定时器。 */
 let bluetoothRefreshTimer = null;
 async function startBluetoothScan() {
+  const button = document.getElementById('bluetooth-scan-start');
+  if (button.disabled) return;
+  button.disabled = true;
+  button.dataset.originalText = button.textContent;
+  button.textContent = '启动中...';
+  button.classList.add('button-busy');
+  setBluetoothActionStatus('正在启动蓝牙扫描...', 'busy');
   try {
     const result = await bluetoothApi('/api/v1/bluetooth/scan/start', { method: 'POST', body: '{}' });
     document.getElementById('bluetooth-result').textContent = JSON.stringify(result, null, 2);
+    setBluetoothScanIndicator(true);
+    setBluetoothActionStatus('扫描已启动，设备列表每 2 秒自动刷新。', 'success');
     await refreshBluetoothStatus();
     await refreshBluetoothDevices();
     if (!bluetoothRefreshTimer) bluetoothRefreshTimer = setInterval(refreshBluetoothDevices, 2000);
   } catch (error) {
     document.getElementById('bluetooth-result').textContent = JSON.stringify(error, null, 2);
+    setBluetoothScanIndicator(false);
+    setBluetoothActionStatus(`扫描启动失败：${error.message || '请查看操作结果'}`, 'error');
+  } finally {
+    button.classList.remove('button-busy');
+    button.textContent = button.dataset.originalText || '开始扫描';
+    button.removeAttribute('data-original-text');
+    button.disabled = Boolean(document.getElementById('bluetooth-scan-indicator')?.classList.contains('active'));
   }
 }
 
 async function stopBluetoothScan() {
+  const button = document.getElementById('bluetooth-scan-stop');
+  if (button.disabled) return;
+  button.disabled = true;
+  button.dataset.originalText = button.textContent;
+  button.textContent = '停止中...';
+  button.classList.add('button-busy');
+  setBluetoothActionStatus('正在停止蓝牙扫描...', 'busy');
   try {
     const result = await bluetoothApi('/api/v1/bluetooth/scan/stop', { method: 'POST', body: '{}' });
     document.getElementById('bluetooth-result').textContent = JSON.stringify(result, null, 2);
+    setBluetoothScanIndicator(false);
+    setBluetoothActionStatus('扫描已停止。', 'success');
   } catch (error) {
     document.getElementById('bluetooth-result').textContent = JSON.stringify(error, null, 2);
+    setBluetoothActionStatus(`停止扫描失败：${error.message || '请查看操作结果'}`, 'error');
   }
   if (bluetoothRefreshTimer) {
     clearInterval(bluetoothRefreshTimer);
     bluetoothRefreshTimer = null;
   }
   await refreshBluetoothStatus();
+  button.classList.remove('button-busy');
+  button.textContent = button.dataset.originalText || '停止扫描';
+  button.removeAttribute('data-original-text');
+  button.disabled = !document.getElementById('bluetooth-scan-indicator')?.classList.contains('active');
 }
 
 /* 只在蓝牙页面打开时读取状态，避免其他硬件页面产生无关轮询。 */
@@ -193,6 +282,90 @@ function initializeBluetoothPage() {
   document.getElementById('bluetooth-devices-refresh').onclick = refreshBluetoothDevices;
   document.getElementById('bluetooth-scan-start').onclick = startBluetoothScan;
   document.getElementById('bluetooth-scan-stop').onclick = stopBluetoothScan;
+  document.getElementById('bluetooth-scan-start').dataset.noButtonFeedback = 'true';
+  document.getElementById('bluetooth-scan-stop').dataset.noButtonFeedback = 'true';
+
+  /* 所有蓝牙按钮点击后立即显示处理中，动态生成的设备按钮同样覆盖。 */
+  document.getElementById('bluetooth-page').addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button || button.dataset.noButtonFeedback === 'true') return;
+    if (button.disabled || button.dataset.feedbackBusy === 'true') return;
+    button.dataset.feedbackBusy = 'true';
+    button.dataset.feedbackOriginal = button.textContent;
+    button.textContent = '处理中...';
+    button.classList.add('button-busy');
+    setBluetoothActionStatus(`已点击“${button.dataset.feedbackOriginal}”，正在等待板端响应...`, 'busy');
+    window.setTimeout(() => {
+      if (button.dataset.feedbackBusy !== 'true') return;
+      button.textContent = button.dataset.feedbackOriginal;
+      button.classList.remove('button-busy');
+      delete button.dataset.feedbackBusy;
+      delete button.dataset.feedbackOriginal;
+    }, 12000);
+  });
+
+  /* 统一读取第二阶段测试所需的设备地址、特征 UUID 和输入参数。 */
+  const targetAddress = () => document.getElementById('bluetooth-target-address').value.trim();
+  const characteristic = () => document.getElementById('gatt-characteristic').value.trim();
+  const protocolResult = (value) => {
+    document.getElementById('bluetooth-result').textContent = JSON.stringify(value, null, 2);
+  };
+  const postProtocol = async (path, body) => {
+    setBluetoothActionStatus('协议操作已发送，等待板端响应...', 'busy');
+    try {
+      const value = await bluetoothApi(path, { method: 'POST', body: JSON.stringify(body) });
+      protocolResult(value);
+      setBluetoothActionStatus('协议操作已完成。', 'success');
+    } catch (error) {
+      protocolResult(error);
+      setBluetoothActionStatus(`协议操作失败：${error.message || '请查看操作结果'}`, 'error');
+    }
+  };
+  /* 通过 A2DP 将 Demo 自带的固定测试语音发送到当前目标设备。 */
+  document.getElementById('bluetooth-test-voice').onclick = () => postProtocol(
+    '/api/v1/bluetooth/test_voice', { address: targetAddress() });
+  const gatt = (action) => postProtocol('/api/v1/bluetooth/gatt', {
+    action, address: targetAddress(), characteristic: characteristic(),
+    data_hex: document.getElementById('gatt-data').value.trim()
+  });
+  document.getElementById('gatt-discover').onclick = () => gatt('discover');
+  document.getElementById('gatt-read').onclick = () => gatt('read');
+  document.getElementById('gatt-write').onclick = () => gatt('write');
+  document.getElementById('gatt-notify-start').onclick = () => gatt('notify_start');
+  document.getElementById('gatt-notify-stop').onclick = () => gatt('notify_stop');
+
+  /* A2DP 操作全部走同一个接口，接口返回 SDK 原始错误结果。 */
+  const a2dp = (action, extra = {}) => postProtocol('/api/v1/bluetooth/a2dp', {
+    action, address: targetAddress(), ...extra
+  });
+  document.getElementById('a2dp-info').onclick = () => a2dp('info');
+  document.getElementById('a2dp-volume-set').onclick = () => a2dp('volume', { volume: Number(document.getElementById('a2dp-volume').value) });
+  document.getElementById('a2dp-mute').onclick = () => a2dp('mute', { muted: true });
+  document.getElementById('a2dp-unmute').onclick = () => a2dp('mute', { muted: false });
+  document.getElementById('a2dp-play').onclick = () => a2dp('play', { path: document.getElementById('a2dp-path').value.trim() });
+  document.getElementById('a2dp-stop').onclick = () => a2dp('stop');
+
+  /* HFP 的 value 用于号码、AT 指令和通话静音布尔值。 */
+  const hfp = (action, value = '') => postProtocol('/api/v1/bluetooth/hfp', {
+    action, address: targetAddress(), value
+  });
+  document.getElementById('hfp-open-sco').onclick = () => hfp('open_sco');
+  document.getElementById('hfp-close-sco').onclick = () => hfp('close_sco');
+  document.getElementById('hfp-send-at').onclick = () => hfp('send_at', document.getElementById('hfp-value').value.trim());
+  document.getElementById('hfp-dial').onclick = () => hfp('dial', document.getElementById('hfp-value').value.trim());
+  document.getElementById('hfp-accept').onclick = () => hfp('accept');
+  document.getElementById('hfp-reject').onclick = () => hfp('reject');
+  document.getElementById('hfp-hangup').onclick = () => hfp('hangup');
+  document.getElementById('hfp-hold').onclick = () => hfp('hold');
+  document.getElementById('hfp-mute').onclick = () => hfp('mute', 'true');
+
+  /* AVRCP 只需要目标设备地址和控制动作。 */
+  const avrcp = (action) => postProtocol('/api/v1/bluetooth/avrcp', {
+    action, address: targetAddress()
+  });
+  ['play', 'pause', 'stop', 'previous', 'next'].forEach((action) => {
+    document.getElementById(`avrcp-${action}`).onclick = () => avrcp(action);
+  });
 }
 
 /* 构造当前 Demo 自带的音频控制面板，页面不再创建 8092 外部 iframe。 */

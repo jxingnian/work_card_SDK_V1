@@ -106,12 +106,64 @@
           <div class="card-title">
             <h2>设备扫描</h2>
             <div>
+              <span id="bluetooth-scan-indicator" class="scan-indicator" aria-live="polite"><span class="scan-dot"></span>未扫描</span>
               <button id="bluetooth-scan-start">开始扫描</button>
               <button id="bluetooth-scan-stop" class="danger">停止扫描</button>
               <button id="bluetooth-devices-refresh">刷新设备</button>
             </div>
           </div>
+          <p id="bluetooth-action-status" class="action-status" aria-live="polite">等待操作</p>
           <div id="bluetooth-device-list" class="list"></div>
+        </section>
+        <section class="card">
+          <h2>第二阶段协议测试</h2>
+          <label>目标设备地址 <input id="bluetooth-target-address" maxlength="17" placeholder="XX:XX:XX:XX:XX:XX"></label>
+          <p class="muted">扫描到耳机或音箱后，点击设备旁的一键配对并连接；连接成功后地址会自动选中，再点击播放测试语音。</p>
+          <button id="bluetooth-test-voice">播放测试语音</button>
+          <div class="protocol-grid">
+            <div>
+              <h3>BLE GATT</h3>
+              <label>特征 UUID <input id="gatt-characteristic" placeholder="特征 UUID"></label>
+              <label>写入数据 Hex <input id="gatt-data" placeholder="01020304"></label>
+              <button id="gatt-discover">发现服务</button>
+              <button id="gatt-read">读取特征</button>
+              <button id="gatt-write">写入特征</button>
+              <button id="gatt-notify-start">开启通知</button>
+              <button id="gatt-notify-stop" class="danger">关闭通知</button>
+            </div>
+            <div>
+              <h3>A2DP 音频</h3>
+              <label>音频文件路径 <input id="a2dp-path" placeholder="/tmp/test.wav"></label>
+              <label>音量 0-100 <input id="a2dp-volume" type="number" min="0" max="100" value="80"></label>
+              <button id="a2dp-info">读取音频状态</button>
+              <button id="a2dp-volume-set">设置音量</button>
+              <button id="a2dp-mute">静音</button>
+              <button id="a2dp-unmute">取消静音</button>
+              <button id="a2dp-play">播放文件</button>
+              <button id="a2dp-stop" class="danger">停止播放</button>
+            </div>
+            <div>
+              <h3>HFP 通话</h3>
+              <label>号码或 AT 指令 <input id="hfp-value" placeholder="号码 / AT+..." /></label>
+              <button id="hfp-open-sco">打开 SCO</button>
+              <button id="hfp-close-sco" class="danger">关闭 SCO</button>
+              <button id="hfp-send-at">发送 AT</button>
+              <button id="hfp-dial">拨号</button>
+              <button id="hfp-accept">接听</button>
+              <button id="hfp-reject" class="danger">拒接</button>
+              <button id="hfp-hangup" class="danger">挂断</button>
+              <button id="hfp-hold">保持</button>
+              <button id="hfp-mute">通话静音</button>
+            </div>
+            <div>
+              <h3>AVRCP 播放控制</h3>
+              <button id="avrcp-play">播放</button>
+              <button id="avrcp-pause">暂停</button>
+              <button id="avrcp-stop" class="danger">停止</button>
+              <button id="avrcp-previous">上一曲</button>
+              <button id="avrcp-next">下一曲</button>
+            </div>
+          </div>
         </section>
         <section class="card">
           <h2>操作结果</h2>

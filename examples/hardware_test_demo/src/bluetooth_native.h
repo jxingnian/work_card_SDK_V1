@@ -39,6 +39,36 @@ public:
     bool connect(const std::string &address, std::string *error_message);
     bool disconnect(const std::string &address, std::string *error_message);
 
+    /* 执行 GATT 服务发现、读写和通知控制，并返回 SDK 最近一次输出。 */
+    bool gatt_discover(const std::string &address, std::string *output,
+                       std::string *error_message);
+    bool gatt_read(const std::string &address, const std::string &characteristic,
+                   std::string *output, std::string *error_message);
+    bool gatt_write(const std::string &address, const std::string &characteristic,
+                    const std::string &data_hex, std::string *output,
+                    std::string *error_message);
+    bool gatt_notify(const std::string &address, const std::string &characteristic,
+                    bool enabled, std::string *output, std::string *error_message);
+
+    /* 执行 A2DP 状态、音量、静音、文件播放和停止测试。 */
+    bool a2dp_info(const std::string &address, std::string *output,
+                   std::string *error_message);
+    bool a2dp_volume(const std::string &address, int volume,
+                     std::string *error_message);
+    bool a2dp_mute(const std::string &address, bool muted,
+                   std::string *error_message);
+    bool a2dp_play(const std::string &address, const std::string &path,
+                   std::string *error_message);
+    bool a2dp_stop(const std::string &address, std::string *error_message);
+
+    /* 执行 HFP SCO、AT 指令和通话控制测试。 */
+    bool hfp_action(const std::string &address, const std::string &action,
+                    const std::string &value, std::string *error_message);
+
+    /* 执行 AVRCP 播放控制测试。 */
+    bool avrcp_action(const std::string &address, const std::string &action,
+                      std::string *error_message);
+
 private:
     /* 将 SDK 返回码转换为可直接显示给操作者的错误文本。 */
     bool check_result(int result, const char *operation, std::string *error_message);

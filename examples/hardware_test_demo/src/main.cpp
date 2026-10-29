@@ -204,6 +204,8 @@ public:
                             std::string audio_runtime_config)
         : wifi_(std::move(interface_name), std::move(control_path)),
           web_root_(std::move(web_root)),
+          /* 测试语音放在 Demo 包的 audio 目录，跟随安装目录定位，避免依赖其他 Demo。 */
+          bluetooth_test_audio_path_(audio_path_from_web_root(web_root_)),
           camera_(std::move(camera_default_config),
                   std::move(camera_runtime_config),
                   std::move(camera_sensor)),
@@ -265,6 +267,106 @@ public:
             else if (action == "disconnect") success = bluetooth_.disconnect(address, &error_message);
             else return error_response(400, "INVALID_ACTION", "unsupported bluetooth action");
             if (!success) return error_response(409, "BLUETOOTH_ACTION_FAILED", error_message);
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/bluetooth/gatt" && request.method == "POST") {
+            std::string action;
+            std::string address;
+            std::string characteristic;
+            std::string data_hex;
+            if (!required_string_field(request.body, "action", &action) ||
+                !required_string_field(request.body, "address", &address)) {
+                return error_response(400, "INVALID_REQUEST", "action and address are required");
+            }
+            (void)json_string_field(request.body, "characteristic", &characteristic);
+            (void)json_string_field(request.body, "data_hex", &data_hex);
+            std::string output;
+            std::string error_message;
+            bool success = false;
+            if (action == "discover") {
+                success = bluetooth_.gatt_discover(address, &output, &error_message);
+            } else if (action == "read" && !characteristic.empty()) {
+                success = bluetooth_.gatt_read(address, characteristic, &output, &error_message);
+            } else if (action == "write" && !characteristic.empty()) {
+                success = bluetooth_.gatt_write(address, characteristic, data_hex, &output, &error_message);
+            } else if ((action == "notify_start" || action == "notify_stop") && !characteristic.empty()) {
+                success = bluetooth_.gatt_notify(address, characteristic, action == "notify_start",
+                                                 &output, &error_message);
+            } else {
+                return error_response(400, "INVALID_REQUEST", "invalid GATT action or characteristic");
+            }
+            if (!success) return error_response(409, "BLUETOOTH_GATT_FAILED", error_message);
+            return {200, "application/json; charset=utf-8",
+                    "{\"ok\":true,\"output\":\"" + json_escape(output) + "\"}"};
+        }
+        if (request.path == "/api/v1/bluetooth/a2dp" && request.method == "POST") {
+            std::string action;
+            std::string address;
+            std::string path;
+            if (!required_string_field(request.body, "action", &action) ||
+                !required_string_field(request.body, "address", &address)) {
+                return error_response(400, "INVALID_REQUEST", "action and address are required");
+            }
+            (void)json_string_field(request.body, "path", &path);
+            uint32_t volume = 0U;
+            if (!json_uint_field(request.body, "volume", 0U, &volume) || volume > 100U) {
+                return error_response(400, "INVALID_REQUEST", "volume must be between 0 and 100");
+            }
+            const bool muted = json_bool_field(request.body, "muted", false);
+            std::string output;
+            std::string error_message;
+            bool success = false;
+            if (action == "info") success = bluetooth_.a2dp_info(address, &output, &error_message);
+            else if (action == "volume") success = bluetooth_.a2dp_volume(address, static_cast<int>(volume), &error_message);
+            else if (action == "mute") success = bluetooth_.a2dp_mute(address, muted, &error_message);
+            else if (action == "play" && !path.empty()) success = bluetooth_.a2dp_play(address, path, &error_message);
+            else if (action == "stop") success = bluetooth_.a2dp_stop(address, &error_message);
+            else return error_response(400, "INVALID_REQUEST", "invalid A2DP action or path");
+            if (!success) return error_response(409, "BLUETOOTH_A2DP_FAILED", error_message);
+            if (action == "info") {
+                return {200, "application/json; charset=utf-8", "{\"ok\":true,\"info\":" + output + "}"};
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/bluetooth/test_voice" && request.method == "POST") {
+            std::string address;
+            if (!required_string_field(request.body, "address", &address)) {
+                return error_response(400, "INVALID_REQUEST", "address is required");
+            }
+            /* 使用 Demo 自带的固定 WAV 语音，通过已连接的 A2DP 设备播放。 */
+            std::string error_message;
+            if (!bluetooth_.a2dp_play(address, bluetooth_test_audio_path_, &error_message)) {
+                return error_response(409, "BLUETOOTH_TEST_VOICE_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true,\"path\":\"" +
+                    json_escape(bluetooth_test_audio_path_) + "\"}"};
+        }
+        if (request.path == "/api/v1/bluetooth/hfp" && request.method == "POST") {
+            std::string action;
+            std::string address;
+            std::string value;
+            if (!required_string_field(request.body, "action", &action) ||
+                !required_string_field(request.body, "address", &address)) {
+                return error_response(400, "INVALID_REQUEST", "action and address are required");
+            }
+            (void)json_string_field(request.body, "value", &value);
+            std::string error_message;
+            if (!bluetooth_.hfp_action(address, action, value, &error_message)) {
+                return error_response(409, "BLUETOOTH_HFP_FAILED", error_message);
+            }
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
+        if (request.path == "/api/v1/bluetooth/avrcp" && request.method == "POST") {
+            std::string action;
+            std::string address;
+            if (!required_string_field(request.body, "action", &action) ||
+                !required_string_field(request.body, "address", &address)) {
+                return error_response(400, "INVALID_REQUEST", "action and address are required");
+            }
+            std::string error_message;
+            if (!bluetooth_.avrcp_action(address, action, &error_message)) {
+                return error_response(409, "BLUETOOTH_AVRCP_FAILED", error_message);
+            }
             return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
         }
         if (request.path == "/api/v1/camera/status" && request.method == "GET") {
@@ -417,8 +519,18 @@ public:
     }
 
 private:
+    /* 根据 web 目录反推 Demo 根目录，保证源码运行和板端安装使用同一套路径规则。 */
+    static std::string audio_path_from_web_root(const std::string &web_root)
+    {
+        const size_t separator = web_root.find_last_of("/\\");
+        const std::string demo_root = separator == std::string::npos ? "." :
+            web_root.substr(0U, separator);
+        return demo_root + "/audio/bluetooth-test.wav";
+    }
+
     NativeWifi wifi_;
     std::string web_root_;
+    std::string bluetooth_test_audio_path_;
     NativeCamera camera_;
     NativeAudio audio_;
     NativeBluetooth bluetooth_;
