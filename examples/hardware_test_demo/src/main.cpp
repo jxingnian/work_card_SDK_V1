@@ -701,6 +701,12 @@ int main(int argc, char **argv)
             camera_runtime_config = argv[++index];
         } else if (argument == "--camera-sensor" && index + 1 < argc) {
             camera_sensor = argv[++index];
+        } else if (argument == "--audio-default" && index + 1 < argc) {
+            /* 音频和摄像头分别接收配置路径，避免音频回退到相对路径。 */
+            audio_default_config = argv[++index];
+        } else if (argument == "--audio-runtime" && index + 1 < argc) {
+            /* 音频运行时配置必须与完整部署包中的配置文件保持一致。 */
+            audio_runtime_config = argv[++index];
         } else if (argument == "--key-device-name" && index + 1 < argc) {
             key_device_name = argv[++index];
         } else if (argument == "--led-path" && index + 1 < argc) {
