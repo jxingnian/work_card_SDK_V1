@@ -57,11 +57,22 @@ async function refreshKeyStatus() {
   }
 }
 
+/* 用户正在编辑时禁止后台轮询覆盖颜色和亮度控件。 */
+let ledControlsDirty = false;
+
 /* 读取 LED 节点的真实状态，避免只显示网页按钮状态。 */
 async function refreshLedStatus() {
   try {
     const value = await api('/api/v1/led/status');
     document.getElementById('led-status').textContent = JSON.stringify(value, null, 2);
+    if (!ledControlsDirty && Number.isInteger(value.red) && Number.isInteger(value.green) && Number.isInteger(value.blue)) {
+      const hex = [value.red, value.green, value.blue].map((item) => item.toString(16).padStart(2, '0')).join('');
+      document.getElementById('led-color').value = `#${hex}`;
+    }
+    if (!ledControlsDirty && Number.isInteger(value.brightness)) {
+      document.getElementById('led-brightness').value = value.brightness;
+      document.getElementById('led-brightness-value').textContent = value.brightness;
+    }
   } catch (error) {
     document.getElementById('led-status').textContent = JSON.stringify(error, null, 2);
   }
@@ -72,6 +83,7 @@ async function setLed(enabled) {
   const result = document.getElementById('key-led-result');
   result.textContent = enabled ? '正在点亮 LED...' : '正在熄灭 LED...';
   result.className = 'action-status busy';
+  ledControlsDirty = false;
   try {
     await api('/api/v1/led/set', { method: 'POST', body: JSON.stringify({ enabled }) });
     result.textContent = enabled ? 'LED 已点亮' : 'LED 已熄灭';
@@ -79,6 +91,32 @@ async function setLed(enabled) {
     await refreshLedStatus();
   } catch (error) {
     result.textContent = `LED 操作失败：${error.message || '请查看状态'}`;
+    result.className = 'action-status error';
+    await refreshLedStatus();
+  }
+}
+
+/* 将网页颜色转换为板端驱动要求的三个十进制 RGB 分量并写入 sysfs。 */
+async function setLedColor() {
+  const result = document.getElementById('key-led-result');
+  const hex = document.getElementById('led-color').value;
+  const brightness = Number(document.getElementById('led-brightness').value);
+  const red = Number.parseInt(hex.slice(1, 3), 16);
+  const green = Number.parseInt(hex.slice(3, 5), 16);
+  const blue = Number.parseInt(hex.slice(5, 7), 16);
+  result.textContent = '正在设置 LED 颜色...';
+  result.className = 'action-status busy';
+  try {
+    await api('/api/v1/led/set', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: brightness > 0, red, green, blue, brightness })
+    });
+    ledControlsDirty = false;
+    result.textContent = 'LED 颜色已设置';
+    result.className = 'action-status success';
+    await refreshLedStatus();
+  } catch (error) {
+    result.textContent = `LED 颜色设置失败：${error.message || '请查看状态'}`;
     result.className = 'action-status error';
     await refreshLedStatus();
   }
@@ -826,6 +864,18 @@ document.getElementById('key-refresh').onclick = refreshKeyStatus;
 document.getElementById('led-refresh').onclick = refreshLedStatus;
 document.getElementById('led-on').onclick = () => setLed(true);
 document.getElementById('led-off').onclick = () => setLed(false);
+document.getElementById('led-color-set').onclick = setLedColor;
+/* 记录用户编辑动作，防止 500 ms 状态轮询把待提交值恢复成旧值。 */
+document.getElementById('led-color').oninput = () => {
+  ledControlsDirty = true;
+};
+document.getElementById('led-color').onchange = () => {
+  ledControlsDirty = true;
+};
+document.getElementById('led-brightness').oninput = (event) => {
+  ledControlsDirty = true;
+  document.getElementById('led-brightness-value').textContent = event.target.value;
+};
 document.getElementById('battery-refresh').onclick = refreshBatteryStatus;
 document.getElementById('battery-curve-refresh').onclick = refreshBatteryCurve;
 document.getElementById('battery-curve-clear').onclick = async () => {

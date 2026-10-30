@@ -232,8 +232,9 @@ public:
                             std::string camera_sensor,
                             std::string audio_default_config,
                             std::string audio_runtime_config,
-                            std::string key_device_name,
-                            std::string led_brightness_path)
+                             std::string key_device_name,
+                             std::string led_brightness_path,
+                             std::string led_color_path)
         : wifi_(interface_name, std::move(control_path)),
           web_root_(std::move(web_root)),
           /* 测试语音放在 Demo 包的 audio 目录，跟随安装目录定位，避免依赖其他 Demo。 */
@@ -244,7 +245,7 @@ public:
           audio_(std::move(audio_default_config),
                  std::move(audio_runtime_config)),
           key_(std::move(key_device_name)),
-          led_(std::move(led_brightness_path)),
+           led_(std::move(led_brightness_path), std::move(led_color_path)),
           /* CH390D 通过独立 eth0 给主控提供 4G 网络，不能复用 WiFi 的 wlan0。 */
           network_("eth0")
     {
@@ -278,8 +279,26 @@ public:
         }
         if (request.path == "/api/v1/led/set" && request.method == "POST") {
             const bool enabled = json_bool_field(request.body, "enabled", false);
+            uint32_t red = 255U;
+            uint32_t green = 255U;
+            uint32_t blue = 255U;
+            uint32_t brightness = enabled ? 255U : 0U;
+            const bool has_color = request.body.find("\"red\"") != std::string::npos ||
+                                   request.body.find("\"green\"") != std::string::npos ||
+                                   request.body.find("\"blue\"") != std::string::npos ||
+                                   request.body.find("\"brightness\"") != std::string::npos;
+            if (!json_uint_field(request.body, "red", red, &red) ||
+                !json_uint_field(request.body, "green", green, &green) ||
+                !json_uint_field(request.body, "blue", blue, &blue) ||
+                !json_uint_field(request.body, "brightness", brightness, &brightness) ||
+                red > 255U || green > 255U || blue > 255U || brightness > 255U) {
+                return error_response(400, "INVALID_REQUEST", "RGB 和 brightness 必须是 0 到 255 的整数");
+            }
             std::string error_message;
-            if (!led_.set(enabled, &error_message)) {
+            const bool success = has_color ? led_.set_color(red, green, blue, enabled ? brightness : 0U,
+                                                             &error_message) :
+                                             led_.set(enabled, &error_message);
+            if (!success) {
                 return error_response(409, "LED_SET_FAILED", error_message);
             }
             return {200, "application/json; charset=utf-8", led_.status_json()};
@@ -662,7 +681,9 @@ int main(int argc, char **argv)
     std::string audio_default_config = "configs/hal_default.json";
     std::string audio_runtime_config = "configs/hal.json";
     std::string key_device_name = "board-keys";
-    std::string led_brightness_path = "/sys/class/leds/status/brightness";
+    /* 板端 xn-ws2812 驱动通过平台 sysfs 节点提供亮度和 RGB 控制。 */
+    std::string led_brightness_path = "/sys/devices/platform/ws2812/brightness";
+    std::string led_color_path = "/sys/devices/platform/ws2812/color";
 
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -684,6 +705,8 @@ int main(int argc, char **argv)
             key_device_name = argv[++index];
         } else if (argument == "--led-path" && index + 1 < argc) {
             led_brightness_path = argv[++index];
+        } else if (argument == "--led-color-path" && index + 1 < argc) {
+            led_color_path = argv[++index];
         }
     }
     if (port < 1 || port > 65535 || interface_name.empty()) {
@@ -697,7 +720,8 @@ int main(int argc, char **argv)
                                                         audio_default_config,
                                                         audio_runtime_config,
                                                         key_device_name,
-                                                        led_brightness_path);
+                                                        led_brightness_path,
+                                                        led_color_path);
     hardware_test::HttpServer server(port, [&application](const hardware_test::HttpRequest &request) {
         return application.handle(request);
     }, []() {

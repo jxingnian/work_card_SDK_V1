@@ -237,8 +237,12 @@
             <h2>LED 测试</h2>
             <button id="led-refresh">刷新状态</button>
           </div>
-          <p class="muted">LED 通过 Linux LED class 的 brightness 节点控制，当前节点由启动参数 --led-path 指定。</p>
+          <p class="muted">LED 使用板端 xn-ws2812 驱动，支持整体亮度和 RGB 颜色控制。</p>
           <pre id="led-status">正在读取 LED 状态...</pre>
+          <label>颜色 <input id="led-color" type="color" value="#ffffff"></label>
+          <label>亮度 <input id="led-brightness" type="range" min="0" max="255" value="255"></label>
+          <span id="led-brightness-value">255</span>
+          <button id="led-color-set">应用颜色</button>
           <button id="led-on">点亮 LED</button>
           <button id="led-off" class="danger">熄灭 LED</button>
           <p id="key-led-result" class="action-status" aria-live="polite">等待操作</p>

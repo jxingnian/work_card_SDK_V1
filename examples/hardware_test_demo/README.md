@@ -47,24 +47,25 @@ http://<板端实际地址>:8090/
 网页侧边栏中的“按键与 LED”页面包含以下功能：
 
 - 按键使用 SDK `ehal_key` 监听 `board-keys` 输入设备，显示 `function`、`volume_up`、`power`、`volume_down` 的按下、释放、长按计数和最近事件。
-- LED 使用 Linux LED class 的 `brightness` 节点，网页可以点亮、熄灭并读取内核节点实际值。
+- LED 使用板端 `xn-ws2812` 驱动的 `brightness` 和 `color` 节点，网页支持点亮、熄灭、调亮度、设置 RGB 颜色并读取内核节点实际值。
 
 接口如下：
 
 ```text
 GET  /api/v1/key/status
 GET  /api/v1/led/status
-POST /api/v1/led/set       body: {"enabled":true|false}
+POST /api/v1/led/set       body: {"enabled":true|false,"red":0-255,"green":0-255,"blue":0-255,"brightness":0-255}
 ```
 
 启动参数如下：
 
 ```text
 --key-device-name board-keys
---led-path /sys/class/leds/status/brightness
+--led-path /sys/devices/platform/ws2812/brightness
+--led-color-path /sys/devices/platform/ws2812/color
 ```
 
-如果板端 LED 的 Linux 节点名称不是 `status`，通过 `--led-path` 传入实际 `brightness` 文件；程序启动日志会明确报告按键设备打开结果，网页 LED 状态会明确报告节点是否可读写。
+如果板端驱动路径不同，通过 `--led-path` 和 `--led-color-path` 传入实际节点；程序会回读亮度和 RGB 值，网页状态会明确报告节点是否可读写。
 
 ## 电池测试
 
