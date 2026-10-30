@@ -85,8 +85,8 @@ size_t parse_content_length(const std::string &headers)
 
 } // namespace
 
-HttpServer::HttpServer(int port, HttpHandler handler)
-    : port_(port), handler_(std::move(handler))
+HttpServer::HttpServer(int port, HttpHandler handler, std::function<bool()> stop_requested)
+    : port_(port), handler_(std::move(handler)), stop_requested_(std::move(stop_requested))
 {
 }
 
@@ -115,9 +115,17 @@ int HttpServer::run()
     std::printf("hardware test demo: http://0.0.0.0:%d\n", port_);
     std::fflush(stdout);
     while (true) {
+        /* 信号到达后，即使系统调用被自动重启，也要在下一轮 accept 前退出。 */
+        if (stop_requested_ && stop_requested_()) {
+            break;
+        }
         int client_fd = accept(server_fd, nullptr, nullptr);
         if (client_fd < 0) {
             if (errno == EINTR) {
+                /* 收到 SIGTERM 后让 accept 循环退出，触发业务对象的正常析构。 */
+                if (stop_requested_ && stop_requested_()) {
+                    break;
+                }
                 continue;
             }
             break;

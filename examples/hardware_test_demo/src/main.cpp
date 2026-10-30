@@ -13,9 +13,21 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <signal.h>
 #include <sstream>
 #include <string>
 #include <utility>
+
+/*
+ * 信号处理函数运行在异步上下文中，只写入 sig_atomic_t 标志。
+ * 硬件释放、线程停止和文件关闭全部在主线程的正常析构流程中完成。
+ */
+volatile std::sig_atomic_t shutdown_requested = 0;
+
+void request_shutdown(int)
+{
+    shutdown_requested = 1;
+}
 
 namespace hardware_test {
 namespace {
@@ -625,13 +637,20 @@ private:
 int main(int argc, char **argv)
 {
     std::signal(SIGPIPE, SIG_IGN);
+    /* 使用不带 SA_RESTART 的处理方式，确保 SIGTERM 能打断 accept。 */
+    struct sigaction shutdown_action{};
+    sigemptyset(&shutdown_action.sa_mask);
+    shutdown_action.sa_handler = request_shutdown;
+    shutdown_action.sa_flags = 0;
+    sigaction(SIGTERM, &shutdown_action, nullptr);
+    sigaction(SIGINT, &shutdown_action, nullptr);
     int port = 8090;
     std::string interface_name = "wlan0";
     std::string control_path = "/etc/wireless/wpa_supplicant";
     std::string web_root = "web";
     std::string camera_default_config = "configs/hal_default.json";
     std::string camera_runtime_config = "configs/hal.json";
-    /* SDK 配置名必须使用 sc2356；实际板端驱动由链接的 fpx1002 库提供。 */
+    /* SDK 默认摄像头传感器配置。 */
     std::string camera_sensor = "sc2356";
     std::string audio_default_config = "configs/hal_default.json";
     std::string audio_runtime_config = "configs/hal.json";
@@ -674,6 +693,8 @@ int main(int argc, char **argv)
                                                         led_brightness_path);
     hardware_test::HttpServer server(port, [&application](const hardware_test::HttpRequest &request) {
         return application.handle(request);
+    }, []() {
+        return shutdown_requested != 0;
     });
     return server.run();
 }

@@ -27,7 +27,12 @@ using HttpHandler = std::function<HttpResponse(const HttpRequest &)>;
  */
 class HttpServer {
 public:
-    HttpServer(int port, HttpHandler handler);
+    /*
+     * 构造 HTTP 服务，并接收一个由主程序提供的退出查询函数。
+     * 退出信号处理函数只负责设置状态，accept 被 EINTR 打断后由这里
+     * 查询状态并退出事件循环，随后主程序才能按 C++ 对象逆序析构硬件模块。
+     */
+    HttpServer(int port, HttpHandler handler, std::function<bool()> stop_requested);
 
     int run();
 
@@ -38,6 +43,7 @@ private:
 
     int port_;
     HttpHandler handler_;
+    std::function<bool()> stop_requested_;
 };
 
 } // namespace hardware_test
