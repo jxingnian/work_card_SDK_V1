@@ -96,12 +96,23 @@
         </section>
         <section class="card">
           <div class="card-title">
-            <h2>以太网口测速</h2>
+            <h2>网站 Ping 测试</h2>
+            <button id="network-ping-start">开始 Ping</button>
+          </div>
+          <label>网站、域名或 IP
+            <input id="network-ping-target" value="www.baidu.com" placeholder="例如：www.baidu.com 或 http://example.com">
+          </label>
+          <p class="muted">输入网站后，测试通过 CH390D 对应网卡执行 4 次 Ping。</p>
+          <pre id="network-ping-result">等待 Ping 测试</pre>
+        </section>
+        <section class="card">
+          <div class="card-title">
+            <h2>4G 模组下载测速</h2>
             <button id="network-speed-start">开始测速</button>
             <button id="network-speed-stop" class="danger">停止测速</button>
           </div>
           <label>HTTP 下载测试地址
-            <input id="network-speed-url" value="http://speedtest.tele2.net/10MB.zip">
+            <input id="network-speed-url" value="http://43.165.125.21/flash_download_tool.zip">
           </label>
           <p class="muted">测速任务绑定 CH390D 以太网出口；测速服务器必须能通过 HTTP 从板端访问。</p>
           <p id="network-speed-action-status" class="action-status" aria-live="polite">等待测速</p>

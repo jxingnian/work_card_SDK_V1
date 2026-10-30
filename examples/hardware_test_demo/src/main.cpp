@@ -304,6 +304,13 @@ public:
         if (request.path == "/api/v1/4g/status" && request.method == "GET") {
             return network_response(network_.ethernet_status());
         }
+        if (request.path == "/api/v1/4g/ping" && request.method == "POST") {
+            std::string target;
+            if (!json_string_field(request.body, "target", &target) || target.empty()) {
+                return error_response(400, "INVALID_REQUEST", "target is required");
+            }
+            return network_response(network_.ping_test(target));
+        }
         if (request.path == "/api/v1/4g/location" && request.method == "GET") {
             return network_response(network_.location());
         }

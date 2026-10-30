@@ -35,6 +35,7 @@ public:
     ~NativeNetwork();
 
     NetworkResult ethernet_status() const;
+    NetworkResult ping_test(const std::string &target) const;
     NetworkResult location() const;
     NetworkResult start_speed_test(const std::string &url);
     NetworkResult stop_speed_test();

@@ -3,6 +3,7 @@
 #include "ehal_audio.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -25,6 +26,15 @@ constexpr uint8_t kChannels = 1;
 constexpr uint8_t kBitWidth = 16;
 constexpr uint32_t kSamplesPerFrame = 320;
 constexpr uint64_t kMaxRecordingBytes = 16U * 1024U * 1024U;
+constexpr int kAudioStartMaxAttempts = 3;
+constexpr int kAudioStartRetryDelayMs = 500;
+
+/* 只有运行时资源暂时不可用才重试；配置错误必须直接返回，避免重复执行必然失败的初始化。 */
+bool is_retryable_start_error(int code)
+{
+    return code == EHAL_ERR_BUSY || code == EHAL_ERR_RUNTIME ||
+        code == EHAL_ERR_TIMEOUT;
+}
 
 /* 将整数按 Ogg/Opus 规范写入小端字节序。 */
 void append_u16(std::vector<uint8_t> *output, uint16_t value)
@@ -189,8 +199,15 @@ bool NativeAudio::start(std::string *error_message)
     if (started_) {
         return true;
     }
+    for (int attempt = 1; attempt <= kAudioStartMaxAttempts; ++attempt) {
     int ret = ehal_audio_create(&audio_);
     if (ret != EHAL_OK) {
+        if (is_retryable_start_error(ret) && attempt < kAudioStartMaxAttempts) {
+            std::fprintf(stderr, "audio create retry %d/%d after error: %s\n",
+                         attempt, kAudioStartMaxAttempts, make_error(ret).c_str());
+            std::this_thread::sleep_for(std::chrono::milliseconds(kAudioStartRetryDelayMs));
+            continue;
+        }
         if (error_message != nullptr) *error_message = make_error(ret);
         return false;
     }
@@ -228,6 +245,12 @@ bool NativeAudio::start(std::string *error_message)
     if (ret != EHAL_OK) {
         ehal_audio_destroy(audio_);
         audio_ = nullptr;
+        if (is_retryable_start_error(ret) && attempt < kAudioStartMaxAttempts) {
+            std::fprintf(stderr, "audio start retry %d/%d after error: %s\n",
+                         attempt, kAudioStartMaxAttempts, make_error(ret).c_str());
+            std::this_thread::sleep_for(std::chrono::milliseconds(kAudioStartRetryDelayMs));
+            continue;
+        }
         if (error_message != nullptr) *error_message = make_error(ret);
         last_error_ = make_error(ret);
         return false;
@@ -236,6 +259,8 @@ bool NativeAudio::start(std::string *error_message)
     recording_channel_ = "left";
     last_error_.clear();
     return true;
+    }
+    return false;
 }
 
 void NativeAudio::stop()

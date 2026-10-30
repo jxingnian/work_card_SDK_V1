@@ -25,6 +25,9 @@
 namespace hardware_test {
 namespace {
 
+/* 4G 测速的默认下载资源；网页和后端同时保留该默认值，避免绕过网页直接调用 API 时地址为空。 */
+constexpr const char *kDefaultSpeedUrl = "http://43.165.125.21/flash_download_tool.zip";
+
 /* 统一转义 JSON 字符串，避免网卡名称、命令输出破坏响应格式。 */
 std::string json_escape(const std::string &value)
 {
@@ -79,6 +82,22 @@ std::string trim(std::string value)
     size_t first = 0;
     while (first < value.size() && (value[first] == ' ' || value[first] == '\t' || value[first] == '\n' || value[first] == '\r')) ++first;
     return value.substr(first);
+}
+
+/*
+ * 从用户输入的主机名、IPv4 地址或 HTTP/HTTPS 网站地址中提取 ping 目标。
+ * ping 只接受主机名/IP，不把整段 URL 传给系统命令，避免得到无效测试结果。
+ */
+std::string ping_host_from_target(std::string target)
+{
+    target = trim(std::move(target));
+    const size_t scheme = target.find("://");
+    if (scheme != std::string::npos) target = target.substr(scheme + 3U);
+    const size_t path = target.find('/');
+    if (path != std::string::npos) target.erase(path);
+    const size_t port = target.rfind(':');
+    if (port != std::string::npos && target.find(']') == std::string::npos) target.erase(port);
+    return trim(std::move(target));
 }
 
 std::string command_output(const std::vector<std::string> &arguments)
@@ -214,6 +233,30 @@ NetworkResult NativeNetwork::ethernet_status() const
     return success(data.str());
 }
 
+NetworkResult NativeNetwork::ping_test(const std::string &target) const
+{
+    /* 允许输入网站 URL、域名或 IP，统一转换为 ping 可识别的主机目标。 */
+    const std::string host = ping_host_from_target(target);
+    if (host.empty()) return failure(400, "PING_TARGET_INVALID", "ping 目标不能为空");
+
+    /* 使用固定参数执行 4 次 ICMP 测试，并绑定 CH390D 对应的网卡接口。 */
+    const CommandResult command = run_native_command(
+        {"ping", "-I", interface_name_, "-c", "4", "-W", "2", host}, 12000, 32768U);
+    const std::string output = trim(command.output);
+    if (!command.started) return failure(500, "PING_START_FAILED", "无法启动 ping 命令");
+    if (command.timed_out) return failure(504, "PING_TIMEOUT", "ping 测试超时");
+    if (command.exit_code != 0) {
+        return failure(502, "PING_FAILED", "ping 测试失败：" + (output.empty() ? std::string("无命令输出") : output));
+    }
+
+    /* 返回原始命令输出和退出码，网页可以据此核对每次测试的实际结果。 */
+    std::ostringstream data;
+    data << "{\"target\":\"" << json_escape(host) << "\",\"interface\":\""
+         << json_escape(interface_name_) << "\",\"exit_code\":" << command.exit_code
+         << ",\"output\":\"" << json_escape(output) << "\"}";
+    return success(data.str());
+}
+
 NetworkResult NativeNetwork::location() const
 {
     return request_location(interface_name_);
@@ -225,11 +268,12 @@ NetworkResult NativeNetwork::start_speed_test(const std::string &url)
     if (speed_thread_.joinable() && !speed_running_.load()) speed_thread_.join();
     std::lock_guard<std::mutex> lock(speed_mutex_);
     if (speed_running_.load()) return failure(409, "SPEED_TEST_RUNNING", "测速已经在运行");
-    if (url.rfind("http://", 0) != 0) return failure(400, "SPEED_TEST_URL_INVALID", "测速地址必须使用 http://，并且必须是可从 CH390D 访问的地址");
+    const std::string actual_url = url.empty() ? kDefaultSpeedUrl : url;
+    if (actual_url.rfind("http://", 0) != 0) return failure(400, "SPEED_TEST_URL_INVALID", "测速地址必须使用 http://，并且必须是可从 CH390D 访问的地址");
     speed_cancel_.store(false);
     speed_running_.store(true);
     speed_status_json_ = "{\"running\":true,\"stage\":\"connecting\",\"message\":\"正在连接测速服务器\"}";
-    speed_thread_ = std::thread(&NativeNetwork::speed_worker, this, url);
+    speed_thread_ = std::thread(&NativeNetwork::speed_worker, this, actual_url);
     return success("{\"running\":true}");
 }
 

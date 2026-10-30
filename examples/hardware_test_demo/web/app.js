@@ -625,6 +625,28 @@ async function refreshNetworkLocation() {
   }
 }
 
+/* 调用后端执行绑定 CH390D 网卡的 ICMP Ping，并把原始结果完整显示出来。 */
+async function startNetworkPing() {
+  const button = document.getElementById('network-ping-start');
+  const result = document.getElementById('network-ping-result');
+  button.disabled = true;
+  result.textContent = '正在 Ping 测试...';
+  try {
+    const target = document.getElementById('network-ping-target').value.trim();
+    const value = await api('/api/v1/4g/ping', {
+      method: 'POST',
+      body: JSON.stringify({ target })
+    });
+    result.textContent = JSON.stringify(value.data, null, 2);
+    setNetworkActionStatus('Ping 测试成功', 'success');
+  } catch (error) {
+    result.textContent = JSON.stringify(error, null, 2);
+    setNetworkActionStatus(`Ping 测试失败：${error.message || '请查看测试结果'}`, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 let networkSpeedTimer = null;
 let networkSpeedBusy = false;
 
@@ -687,6 +709,7 @@ async function stopNetworkSpeed() {
 function initializeNetworkPage() {
   document.getElementById('network-4g-refresh').onclick = refreshNetworkStatus;
   document.getElementById('network-location-refresh').onclick = refreshNetworkLocation;
+  document.getElementById('network-ping-start').onclick = startNetworkPing;
   document.getElementById('network-speed-start').onclick = startNetworkSpeed;
   document.getElementById('network-speed-stop').onclick = stopNetworkSpeed;
   refreshNetworkStatus();

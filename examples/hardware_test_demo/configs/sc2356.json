@@ -13,9 +13,21 @@
         "vpss": [{"dev": 0, "grp_num": 1, "chn_num": 1, "max_width": 1600, "max_height": 1200, "nr": true, "sharpen": false, "iesharp": false}],
         "venc": [{"chn": 0, "encode_fmt": "H264", "width": 1600, "height": 1200, "fps": 30, "gop": 60, "bit_rate": 8192000, "rc_mode": 2, "profile": 2, "min_qp": 10, "max_qp": 51, "snap": false}]
     },
-    "pipeline": [{
-        "name": "video_record",
-        "auto_bind": true,
-        "nodes": [{"mod": "VI", "dev": 0, "chn": 0}, {"mod": "VPSS", "dev": 0, "chn": 0}, {"mod": "VENC", "dev": 0, "chn": 0}]
-    }]
+    "pipeline": [
+        {
+            "name": "video_record",
+            "auto_bind": true,
+            "nodes": [{"mod": "VI", "dev": 0, "chn": 0}, {"mod": "VPSS", "dev": 0, "chn": 0}, {"mod": "VENC", "dev": 0, "chn": 0}]
+        },
+        {
+            "name": "audio_record",
+            "auto_bind": true,
+            "nodes": [{"mod": "AI", "dev": 0, "chn": 0}, {"mod": "AENC", "dev": 0, "chn": 0}]
+        },
+        {
+            "name": "audio_playback",
+            "auto_bind": true,
+            "nodes": [{"mod": "ADEC", "dev": 0, "chn": 0}, {"mod": "AO", "dev": 0, "chn": 0}]
+        }
+    ]
 }
