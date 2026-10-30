@@ -43,6 +43,13 @@ input, select { box-sizing: border-box; width: 100%; padding: 9px; border-radius
 .hardware-item h3 { margin: 0 0 8px; }
 .hardware-item p { margin: 5px 0; color: #b8c6d4; }
 .hardware-item.pressed { border-color: #43d96a; box-shadow: 0 0 0 1px #43d96a inset; }
+.battery-summary { display: grid; grid-template-columns: 1.5fr repeat(3, 1fr); gap: 12px; align-items: center; }
+.battery-summary > div { padding: 14px; border: 1px solid #334253; border-radius: 8px; }
+.battery-summary p { margin: 0 0 6px; color: #98a8b8; }
+.battery-summary strong { font-size: 22px; }
+.battery-percent { color: #8fe3a5; font-size: 42px; font-weight: bold; text-align: center; }
+#battery-chart { display: block; width: 100%; height: 300px; background: #0b1015; border-radius: 6px; }
+@media (max-width: 700px) { .battery-summary { grid-template-columns: repeat(2, 1fr); } .battery-percent { grid-column: span 2; } }
 .list-item { border: 1px solid #334253; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .list-item span { overflow-wrap: anywhere; }
 .bluetooth-device > div { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }

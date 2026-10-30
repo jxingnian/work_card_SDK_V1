@@ -17,6 +17,7 @@
       <button class="nav-item" data-page="camera-page">摄像头</button>
       <button class="nav-item" data-page="bluetooth-page">蓝牙</button>
       <button class="nav-item" data-page="key-led-page">按键与 LED</button>
+      <button class="nav-item" data-page="battery-page">电池测试</button>
     </aside>
 
     <main class="container">
@@ -230,6 +231,31 @@
           <button id="led-on">点亮 LED</button>
           <button id="led-off" class="danger">熄灭 LED</button>
           <p id="key-led-result" class="action-status" aria-live="polite">等待操作</p>
+        </section>
+      </div>
+
+      <div id="battery-page" class="page">
+        <section class="card">
+          <div class="card-title">
+            <h2>电池实时状态</h2>
+            <button id="battery-refresh">刷新</button>
+          </div>
+          <p class="muted">采样点：GPIO1_5 / LSADC_CH1；硬件分压倍率：3；采样周期：1 秒。</p>
+          <div class="battery-summary">
+            <div class="battery-percent" id="battery-percent">--%</div>
+            <div><p>电池电压</p><strong id="battery-voltage">-- V</strong></div>
+            <div><p>ADC 原始值</p><strong id="battery-raw">--</strong></div>
+            <div><p>记录点数</p><strong id="battery-count">0</strong></div>
+          </div>
+          <p id="battery-status" class="action-status" aria-live="polite">正在读取电池状态...</p>
+        </section>
+        <section class="card">
+          <div class="card-title">
+            <h2>电量曲线</h2>
+            <div><button id="battery-curve-refresh">刷新曲线</button><button id="battery-curve-clear" class="danger">清空记录</button></div>
+          </div>
+          <canvas id="battery-chart" width="900" height="300" aria-label="电池电量曲线"></canvas>
+          <p class="muted">曲线为本次 Demo 启动后的板端采样记录，最多保留 3600 个点。</p>
         </section>
       </div>
     </main>

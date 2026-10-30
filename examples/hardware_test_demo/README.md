@@ -66,6 +66,26 @@ POST /api/v1/led/set       body: {"enabled":true|false}
 
 如果板端 LED 的 Linux 节点名称不是 `status`，通过 `--led-path` 传入实际 `brightness` 文件；程序启动日志会明确报告按键设备打开结果，网页 LED 状态会明确报告节点是否可读写。
 
+## 电池测试
+
+网页侧边栏中的“电池测试”页面使用板端 LSADC 采集电池电压，并显示：
+
+- 当前电池电压、ADC 原始值和电量百分比。
+- 启动本 Demo 后的电量曲线，1 秒采样一次，最多保存 3600 个点。
+- 清空曲线记录，不会停止 ADC 采样。
+
+接口如下：
+
+```text
+GET  /api/v1/battery/status
+GET  /api/v1/battery/curve
+POST /api/v1/battery/curve/clear
+```
+
+电压换算依据沿用 `battery_adc_demo`：10 位 ADC、3.3V 参考、R6/R11 分压倍率 3。电量百分比采用单节锂电池工程显示区间 3.30V=0%、4.20V=100%，原始电压和 ADC 码同时显示，便于使用万用表校准后复核。
+
+电池 ADC 与其他直接使用 `GPIO1_5/LSADC_CH1` 的程序互斥。部署脚本会先停止旧 `hardware_test_demo`，完整替换 `/opt/hardware_test_demo`；不要同时运行独立 `battery_adc_demo`。
+
 摄像头接口：
 
 ```text

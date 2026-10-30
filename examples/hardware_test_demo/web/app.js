@@ -32,6 +32,7 @@ function switchPage(pageId) {
     stopCameraPreview();
   }
   updateKeyLedPolling(pageId);
+  updateBatteryPolling(pageId);
 }
 
 /* 刷新按键状态卡片，状态字段直接对应 ehal_key 返回的计数。 */
@@ -96,6 +97,75 @@ function updateKeyLedPolling(pageId) {
   } else if (keyLedTimer) {
     clearInterval(keyLedTimer);
     keyLedTimer = null;
+  }
+}
+
+/* 将板端电池状态更新到实时摘要，保留原始码和明确错误供现场核对。 */
+async function refreshBatteryStatus() {
+  try {
+    const value = await api('/api/v1/battery/status');
+    document.getElementById('battery-percent').textContent = value.sample_valid ? `${value.percent}%` : '--%';
+    document.getElementById('battery-voltage').textContent = value.sample_valid ? `${value.battery_v.toFixed(3)} V` : '-- V';
+    document.getElementById('battery-raw').textContent = value.sample_valid ? value.raw : '--';
+    document.getElementById('battery-count').textContent = value.sample_count;
+    const status = document.getElementById('battery-status');
+    status.textContent = value.sample_valid ? 'ADC 采样正常' : (value.last_error || '等待 ADC 首次采样');
+    status.className = `action-status${value.sample_valid ? ' success' : ' error'}`;
+  } catch (error) {
+    document.getElementById('battery-status').textContent = JSON.stringify(error);
+    document.getElementById('battery-status').className = 'action-status error';
+  }
+}
+
+/* 使用 Canvas 绘制板端保存的百分比曲线，横轴按采样顺序，纵轴为 0~100%。 */
+async function refreshBatteryCurve() {
+  try {
+    const value = await api('/api/v1/battery/curve');
+    const canvas = document.getElementById('battery-chart');
+    const context = canvas.getContext('2d');
+    const width = canvas.clientWidth || 900;
+    const height = 300;
+    const scale = window.devicePixelRatio || 1;
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    context.setTransform(scale, 0, 0, scale, 0, 0);
+    context.clearRect(0, 0, width, height);
+    context.strokeStyle = '#334253';
+    context.lineWidth = 1;
+    for (let percent = 0; percent <= 100; percent += 25) {
+      const y = height - 24 - percent * (height - 44) / 100;
+      context.beginPath(); context.moveTo(36, y); context.lineTo(width - 12, y); context.stroke();
+      context.fillStyle = '#98a8b8'; context.fillText(`${percent}%`, 4, y + 4);
+    }
+    const points = value.points || [];
+    if (points.length < 1) return;
+    context.strokeStyle = '#43d96a';
+    context.lineWidth = 2;
+    context.beginPath();
+    points.forEach((point, index) => {
+      const x = points.length === 1 ? 36 : 36 + index * (width - 48) / (points.length - 1);
+      const y = height - 24 - point.percent * (height - 44) / 100;
+      if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+    });
+    context.stroke();
+  } catch (error) {
+    document.getElementById('battery-status').textContent = JSON.stringify(error);
+  }
+}
+
+/* 电池页面进入后每秒更新一次摘要和曲线，离开页面停止轮询。 */
+let batteryTimer = null;
+function updateBatteryPolling(pageId) {
+  if (pageId === 'battery-page') {
+    refreshBatteryStatus();
+    refreshBatteryCurve();
+    if (!batteryTimer) batteryTimer = setInterval(() => {
+      refreshBatteryStatus();
+      refreshBatteryCurve();
+    }, 1000);
+  } else if (batteryTimer) {
+    clearInterval(batteryTimer);
+    batteryTimer = null;
   }
 }
 
@@ -733,6 +803,13 @@ document.getElementById('key-refresh').onclick = refreshKeyStatus;
 document.getElementById('led-refresh').onclick = refreshLedStatus;
 document.getElementById('led-on').onclick = () => setLed(true);
 document.getElementById('led-off').onclick = () => setLed(false);
+document.getElementById('battery-refresh').onclick = refreshBatteryStatus;
+document.getElementById('battery-curve-refresh').onclick = refreshBatteryCurve;
+document.getElementById('battery-curve-clear').onclick = async () => {
+  await api('/api/v1/battery/curve/clear', { method: 'POST', body: '{}' });
+  await refreshBatteryCurve();
+  await refreshBatteryStatus();
+};
 refreshStatus();
 refreshSaved();
 refreshCameraStatus();

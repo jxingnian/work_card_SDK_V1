@@ -21,6 +21,7 @@ add_executable(hardware_test_demo
     src/network_native.cpp
     src/key_native.cpp
     src/led_native.cpp
+    src/battery_native.cpp
 )
 
 target_include_directories(hardware_test_demo PRIVATE

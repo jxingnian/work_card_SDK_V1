@@ -6,6 +6,7 @@
 #include "network_native.h"
 #include "key_native.h"
 #include "led_native.h"
+#include "battery_native.h"
 
 #include <csignal>
 #include <cstdint>
@@ -246,6 +247,9 @@ public:
         if (!key_.start(&error_message)) {
             std::fprintf(stderr, "key start failed: %s\n", error_message.c_str());
         }
+        if (!battery_.start(&error_message)) {
+            std::fprintf(stderr, "battery start failed: %s\n", error_message.c_str());
+        }
     }
 
     HttpResponse handle(const HttpRequest &request)
@@ -268,9 +272,19 @@ public:
             }
             return {200, "application/json; charset=utf-8", led_.status_json()};
         }
+        if (request.path == "/api/v1/battery/status" && request.method == "GET") {
+            return {200, "application/json; charset=utf-8", battery_.status_json()};
+        }
+        if (request.path == "/api/v1/battery/curve" && request.method == "GET") {
+            return {200, "application/json; charset=utf-8", battery_.curve_json()};
+        }
+        if (request.path == "/api/v1/battery/curve/clear" && request.method == "POST") {
+            battery_.clear_curve();
+            return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+        }
         if (request.path == "/api/v1/modules" && request.method == "GET") {
             return {200, "application/json; charset=utf-8",
-                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"4g\",\"name\":\"4G 模组\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"},{\"id\":\"audio\",\"name\":\"Audio\",\"state\":\"enabled\"},{\"id\":\"bluetooth\",\"name\":\"Bluetooth\",\"state\":\"enabled\"},{\"id\":\"key_led\",\"name\":\"按键与 LED\",\"state\":\"enabled\"}]}"};
+                    "{\"ok\":true,\"modules\":[{\"id\":\"wifi\",\"name\":\"WiFi\",\"state\":\"enabled\"},{\"id\":\"4g\",\"name\":\"4G 模组\",\"state\":\"enabled\"},{\"id\":\"camera\",\"name\":\"Camera\",\"state\":\"enabled\"},{\"id\":\"audio\",\"name\":\"Audio\",\"state\":\"enabled\"},{\"id\":\"bluetooth\",\"name\":\"Bluetooth\",\"state\":\"enabled\"},{\"id\":\"key_led\",\"name\":\"按键与 LED\",\"state\":\"enabled\"},{\"id\":\"battery\",\"name\":\"电池\",\"state\":\"enabled\"}]}"};
         }
         if (request.path == "/api/v1/ethernet/status" && request.method == "GET") {
             return network_response(network_.ethernet_status());
@@ -601,6 +615,7 @@ private:
     NativeBluetooth bluetooth_;
     NativeKey key_;
     NativeLed led_;
+    NativeBattery battery_;
     NativeNetwork network_;
 };
 
