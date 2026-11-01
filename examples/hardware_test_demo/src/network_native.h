@@ -45,6 +45,7 @@ private:
     void speed_worker(std::string url);
 
     std::string interface_name_;
+    mutable std::mutex route_mutex_;
     mutable std::mutex speed_mutex_;
     std::thread speed_thread_;
     std::atomic<bool> speed_running_{false};

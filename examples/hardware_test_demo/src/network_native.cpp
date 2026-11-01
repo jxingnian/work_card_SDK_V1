@@ -143,6 +143,77 @@ std::string interface_ipv4(const std::string &interface_name)
     return end == std::string::npos ? "" : output.substr(start, end - start);
 }
 
+/* Resolve one stable IPv4 address so the temporary route matches the connection. */
+std::string resolve_ipv4(const std::string &host)
+{
+    struct addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo *addresses = nullptr;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &addresses) != 0 || addresses == nullptr) return "";
+    char address_text[INET_ADDRSTRLEN] = {};
+    const auto *address = reinterpret_cast<const sockaddr_in *>(addresses->ai_addr);
+    const char *converted = inet_ntop(AF_INET, &address->sin_addr, address_text, sizeof(address_text));
+    const std::string result = converted == nullptr ? "" : converted;
+    freeaddrinfo(addresses);
+    return result;
+}
+
+/*
+ * SO_BINDTODEVICE restricts a socket but does not override destination routing.
+ * Add a temporary /32 route so tests really use the selected Ethernet出口.
+ */
+class TemporaryHostRoute {
+public:
+    TemporaryHostRoute(const std::string &interface_name, const std::string &target_ip)
+        : interface_name_(interface_name), target_ip_(target_ip)
+    {
+    }
+
+    ~TemporaryHostRoute()
+    {
+        if (installed_) {
+            (void)run_native_command({"ip", "route", "del", target_ip_ + "/32", "via", gateway_,
+                                      "dev", interface_name_, "metric", "1"}, 2000, 4096U);
+        }
+    }
+
+    bool install(std::string &error)
+    {
+        gateway_ = default_gateway(interface_name_);
+        if (gateway_.empty()) {
+            error = "接口 " + interface_name_ + " 没有可用默认网关";
+            return false;
+        }
+        if (interface_ipv4(interface_name_).empty()) {
+            error = "接口 " + interface_name_ + " 没有 IPv4 地址";
+            return false;
+        }
+        const CommandResult command = run_native_command(
+            {"ip", "route", "add", target_ip_ + "/32", "via", gateway_, "dev", interface_name_, "metric", "1"},
+            2000, 4096U);
+        if (command.started && command.exit_code == 0 && !command.timed_out) {
+            installed_ = true;
+            return true;
+        }
+
+        /* Reuse an existing route only when the kernel confirms it uses this interface. */
+        const CommandResult route = run_native_command({"ip", "route", "get", target_ip_}, 2000, 4096U);
+        if (route.started && route.exit_code == 0 && route.output.find("dev " + interface_name_) != std::string::npos) {
+            return true;
+        }
+        error = trim(command.output);
+        if (error.empty()) error = "无法添加目标路由";
+        return false;
+    }
+
+private:
+    std::string interface_name_;
+    std::string target_ip_;
+    std::string gateway_;
+    bool installed_ = false;
+};
+
 /* 创建带超时的 TCP 连接，避免定位或测速服务器异常时卡住网页请求。 */
 int connect_with_timeout(const std::string &host, uint16_t port, int timeout_seconds, const std::string &interface_name)
 {
@@ -239,9 +310,18 @@ NetworkResult NativeNetwork::ping_test(const std::string &target) const
     const std::string host = ping_host_from_target(target);
     if (host.empty()) return failure(400, "PING_TARGET_INVALID", "ping 目标不能为空");
 
+    const std::string target_ip = resolve_ipv4(host);
+    if (target_ip.empty()) return failure(502, "PING_RESOLVE_FAILED", "无法解析 ping 目标：" + host);
+    std::lock_guard<std::mutex> route_lock(route_mutex_);
+    std::string route_error;
+    TemporaryHostRoute route(interface_name_, target_ip);
+    if (!route.install(route_error)) {
+        return failure(502, "PING_ROUTE_FAILED", "无法通过 " + interface_name_ + " 建立目标路由：" + route_error);
+    }
+
     /* 使用固定参数执行 4 次 ICMP 测试，并绑定 CH390D 对应的网卡接口。 */
     const CommandResult command = run_native_command(
-        {"ping", "-I", interface_name_, "-c", "4", "-W", "2", host}, 12000, 32768U);
+        {"ping", "-I", interface_name_, "-c", "4", "-W", "2", target_ip}, 12000, 32768U);
     const std::string output = trim(command.output);
     if (!command.started) return failure(500, "PING_START_FAILED", "无法启动 ping 命令");
     if (command.timed_out) return failure(504, "PING_TIMEOUT", "ping 测试超时");
@@ -251,7 +331,7 @@ NetworkResult NativeNetwork::ping_test(const std::string &target) const
 
     /* 返回原始命令输出和退出码，网页可以据此核对每次测试的实际结果。 */
     std::ostringstream data;
-    data << "{\"target\":\"" << json_escape(host) << "\",\"interface\":\""
+    data << "{\"target\":\"" << json_escape(target_ip) << "\",\"interface\":\""
          << json_escape(interface_name_) << "\",\"exit_code\":" << command.exit_code
          << ",\"output\":\"" << json_escape(output) << "\"}";
     return success(data.str());
@@ -317,7 +397,23 @@ void NativeNetwork::speed_worker(std::string url)
             return;
         }
     }
-    const int socket_fd = connect_with_timeout(host, port, 8, interface_name_);
+    const std::string target_ip = resolve_ipv4(host);
+    if (target_ip.empty()) {
+        std::lock_guard<std::mutex> lock(speed_mutex_);
+        speed_status_json_ = "{\"running\":false,\"stage\":\"failed\",\"message\":\"测速服务器域名解析失败\"}";
+        speed_running_.store(false);
+        return;
+    }
+    std::unique_lock<std::mutex> route_lock(route_mutex_);
+    std::string route_error;
+    TemporaryHostRoute route(interface_name_, target_ip);
+    if (!route.install(route_error)) {
+        std::lock_guard<std::mutex> lock(speed_mutex_);
+        speed_status_json_ = "{\"running\":false,\"stage\":\"failed\",\"message\":\"测速目标路由失败\"}";
+        speed_running_.store(false);
+        return;
+    }
+    const int socket_fd = connect_with_timeout(target_ip, port, 8, interface_name_);
     if (socket_fd < 0) {
         std::lock_guard<std::mutex> lock(speed_mutex_);
         speed_status_json_ = "{\"running\":false,\"stage\":\"failed\",\"message\":\"测速服务器连接失败\"}";
