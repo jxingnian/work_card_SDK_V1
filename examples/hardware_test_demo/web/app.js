@@ -846,6 +846,45 @@ async function deleteNetwork(networkId) {
   }
 }
 
+/* 启动 Cloudflare HTTPS 上行测速；固定发送 4 MiB，确保任务持续时间足够统计稳定速度。 */
+async function startNetworkUploadSpeed() {
+  const result = document.getElementById('network-speed-result');
+  const status = document.getElementById('network-speed-action-status');
+  const button = document.getElementById('network-upload-start');
+  button.disabled = true;
+  status.textContent = '正在启动上行测速...';
+  status.className = 'action-status busy';
+  try {
+    await api('/api/v1/ethernet/speed/start', {
+      method: 'POST',
+      body: JSON.stringify({
+        direction: 'upload',
+        url: 'http://speed.cloudflare.com/__up',
+        upload_bytes: 4 * 1024 * 1024
+      })
+    });
+    if (!networkSpeedTimer) networkSpeedTimer = setInterval(refreshNetworkSpeed, 500);
+    await refreshNetworkSpeed();
+  } catch (error) {
+    result.textContent = JSON.stringify(error, null, 2);
+    status.textContent = `上行测速启动失败：${error.message || '请查看结果'}`;
+    status.className = 'action-status error';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/* 页面已有下行按钮旁追加上行按钮，保持旧网页布局和下行 API 兼容。 */
+const downloadSpeedButton = document.getElementById('network-speed-start');
+if (downloadSpeedButton && !document.getElementById('network-upload-start')) {
+  const uploadSpeedButton = document.createElement('button');
+  uploadSpeedButton.id = 'network-upload-start';
+  uploadSpeedButton.type = 'button';
+  uploadSpeedButton.textContent = '开始上行测速';
+  uploadSpeedButton.onclick = startNetworkUploadSpeed;
+  downloadSpeedButton.parentElement.appendChild(uploadSpeedButton);
+}
+
 document.getElementById('refresh-status').onclick = refreshStatus;
 document.getElementById('refresh-saved').onclick = refreshSaved;
 document.getElementById('scan').onclick = scan;

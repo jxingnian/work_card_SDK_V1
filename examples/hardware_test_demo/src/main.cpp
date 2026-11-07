@@ -338,10 +338,17 @@ public:
         }
         if (request.path == "/api/v1/ethernet/speed/start" && request.method == "POST") {
             std::string url;
-            if (!json_string_field(request.body, "url", &url) || url.empty()) {
+            std::string direction = "download";
+            uint32_t upload_bytes = 4U * 1024U * 1024U;
+            if (!json_string_field(request.body, "url", &url) || url.empty() ||
+                (request.body.find("\"direction\"") != std::string::npos &&
+                 !json_string_field(request.body, "direction", &direction)) ||
+                (direction != "download" && direction != "upload") ||
+                !json_uint_field(request.body, "upload_bytes", upload_bytes, &upload_bytes) ||
+                upload_bytes < 64U * 1024U || upload_bytes > 8U * 1024U * 1024U) {
                 return error_response(400, "INVALID_REQUEST", "url is required");
             }
-            return network_response(network_.start_speed_test(url));
+            return network_response(network_.start_speed_test(url, direction, upload_bytes));
         }
         if (request.path == "/api/v1/ethernet/speed/stop" && request.method == "POST") {
             return network_response(network_.stop_speed_test());

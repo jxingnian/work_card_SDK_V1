@@ -37,12 +37,14 @@ public:
     NetworkResult ethernet_status() const;
     NetworkResult ping_test(const std::string &target) const;
     NetworkResult location() const;
-    NetworkResult start_speed_test(const std::string &url);
+    NetworkResult start_speed_test(const std::string &url,
+                                   const std::string &direction = "download",
+                                   uint32_t upload_bytes = 4U * 1024U * 1024U);
     NetworkResult stop_speed_test();
     NetworkResult speed_status() const;
 
 private:
-    void speed_worker(std::string url);
+    void speed_worker(std::string url, std::string direction, uint32_t upload_bytes);
 
     std::string interface_name_;
     mutable std::mutex route_mutex_;

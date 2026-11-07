@@ -13,6 +13,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
 #include <chrono>
 #include <cerrno>
 #include <cstring>
@@ -27,6 +30,7 @@ namespace {
 
 /* 4G 测速的默认下载资源；网页和后端同时保留该默认值，避免绕过网页直接调用 API 时地址为空。 */
 constexpr const char *kDefaultSpeedUrl = "http://43.165.125.21/flash_download_tool.zip";
+constexpr const char *kDefaultUploadUrl = "https://speed.cloudflare.com/__up";
 
 /* 统一转义 JSON 字符串，避免网卡名称、命令输出破坏响应格式。 */
 std::string json_escape(const std::string &value)
@@ -246,6 +250,41 @@ int connect_with_timeout(const std::string &host, uint16_t port, int timeout_sec
     return socket_fd;
 }
 
+/*
+ * Cloudflare 上行接口使用 HTTPS；这个小型 RAII 封装负责 TLS 上下文和 SSL 连接释放。
+ * 测速设备通常没有配置系统 CA 证书，因此仅在测速连接中关闭证书校验，避免因证书库缺失阻断测速。
+ */
+class TlsSocket {
+public:
+    explicit TlsSocket(int socket_fd) : socket_fd_(socket_fd) {}
+    ~TlsSocket()
+    {
+        if (ssl_ != nullptr) {
+            (void)SSL_shutdown(ssl_);
+            SSL_free(ssl_);
+        }
+        if (context_ != nullptr) SSL_CTX_free(context_);
+        if (socket_fd_ >= 0) close(socket_fd_);
+    }
+    bool connect(const std::string &host)
+    {
+        context_ = SSL_CTX_new(TLS_client_method());
+        if (context_ == nullptr) return false;
+        SSL_CTX_set_verify(context_, SSL_VERIFY_NONE, nullptr);
+        ssl_ = SSL_new(context_);
+        if (ssl_ == nullptr) return false;
+        SSL_set_tlsext_host_name(ssl_, host.c_str());
+        SSL_set_fd(ssl_, socket_fd_);
+        return SSL_connect(ssl_) == 1;
+    }
+    int write(const void *data, int length) { return SSL_write(ssl_, data, length); }
+    int read(void *data, int length) { return SSL_read(ssl_, data, length); }
+private:
+    int socket_fd_ = -1;
+    SSL_CTX *context_ = nullptr;
+    SSL *ssl_ = nullptr;
+};
+
 /* 请求 CH390D 的固定定位接口，并原样保留 GNSS/LBS 字段供前端分别显示。 */
 NetworkResult request_location(const std::string &interface_name)
 {
@@ -342,18 +381,21 @@ NetworkResult NativeNetwork::location() const
     return request_location(interface_name_);
 }
 
-NetworkResult NativeNetwork::start_speed_test(const std::string &url)
+NetworkResult NativeNetwork::start_speed_test(const std::string &url,
+                                              const std::string &direction,
+                                              uint32_t upload_bytes)
 {
     /* 上一次任务已经结束但线程对象仍可 join，先回收线程再创建下一次任务。 */
     if (speed_thread_.joinable() && !speed_running_.load()) speed_thread_.join();
     std::lock_guard<std::mutex> lock(speed_mutex_);
     if (speed_running_.load()) return failure(409, "SPEED_TEST_RUNNING", "测速已经在运行");
-    const std::string actual_url = url.empty() ? kDefaultSpeedUrl : url;
+    const std::string actual_url = url.empty() ?
+        (direction == "upload" ? "http://speed.cloudflare.com/__up" : kDefaultSpeedUrl) : url;
     if (actual_url.rfind("http://", 0) != 0) return failure(400, "SPEED_TEST_URL_INVALID", "测速地址必须使用 http://，并且必须是可从 CH390D 访问的地址");
     speed_cancel_.store(false);
     speed_running_.store(true);
     speed_status_json_ = "{\"running\":true,\"stage\":\"connecting\",\"message\":\"正在连接测速服务器\"}";
-    speed_thread_ = std::thread(&NativeNetwork::speed_worker, this, actual_url);
+    speed_thread_ = std::thread(&NativeNetwork::speed_worker, this, actual_url, direction, upload_bytes);
     return success("{\"running\":true}");
 }
 
@@ -375,14 +417,15 @@ NetworkResult NativeNetwork::speed_status() const
  * URL 采用 http://IPv4[:port]/path 形式，测试连接绑定到 eth0，实际测量的
  * 是 CH390D 以太网出口的下载吞吐量，而不是 WiFi 或其他默认出口。
  */
-void NativeNetwork::speed_worker(std::string url)
+void NativeNetwork::speed_worker(std::string url, std::string direction, uint32_t upload_bytes)
 {
+    const bool upload = direction == "upload";
     const size_t scheme_end = 7U;
     const size_t path_pos = url.find('/', scheme_end);
     const std::string host_port = url.substr(scheme_end, path_pos == std::string::npos ? std::string::npos : path_pos - scheme_end);
     const std::string path = path_pos == std::string::npos ? "/" : url.substr(path_pos);
     std::string host = host_port;
-    uint16_t port = 80;
+    uint16_t port = upload ? 443 : 80;
     const size_t colon = host_port.rfind(':');
     if (colon != std::string::npos) {
         host = host_port.substr(0, colon);
@@ -417,6 +460,54 @@ void NativeNetwork::speed_worker(std::string url)
     if (socket_fd < 0) {
         std::lock_guard<std::mutex> lock(speed_mutex_);
         speed_status_json_ = "{\"running\":false,\"stage\":\"failed\",\"message\":\"测速服务器连接失败\"}";
+        speed_running_.store(false);
+        return;
+    }
+    /* 上行测速使用 Cloudflare 的 HTTPS POST，数据由 Air780 的 4G 出口直接发送。 */
+    if (upload) {
+        TlsSocket tls(socket_fd);
+        if (!tls.connect(host)) {
+            std::lock_guard<std::mutex> lock(speed_mutex_);
+            speed_status_json_ = "{\"running\":false,\"direction\":\"upload\",\"stage\":\"failed\",\"message\":\"HTTPS TLS连接失败\"}";
+            speed_running_.store(false);
+            return;
+        }
+        std::ostringstream header;
+        header << "POST " << path << " HTTP/1.1\r\nHost: " << host
+               << "\r\nContent-Type: application/octet-stream\r\nContent-Length: " << upload_bytes
+               << "\r\nConnection: close\r\n\r\n";
+        const std::string header_text = header.str();
+        if (tls.write(header_text.data(), static_cast<int>(header_text.size())) <= 0) {
+            std::lock_guard<std::mutex> lock(speed_mutex_);
+            speed_status_json_ = "{\"running\":false,\"direction\":\"upload\",\"stage\":\"failed\",\"message\":\"HTTPS请求头发送失败\"}";
+            speed_running_.store(false);
+            return;
+        }
+        const auto started = std::chrono::steady_clock::now();
+        size_t bytes = 0;
+        std::vector<char> payload(64U * 1024U, 'A');
+        while (bytes < upload_bytes && !speed_cancel_.load()) {
+            const int chunk_size = static_cast<int>(std::min<size_t>(payload.size(), upload_bytes - bytes));
+            const int sent = tls.write(payload.data(), chunk_size);
+            if (sent <= 0) break;
+            bytes += static_cast<size_t>(sent);
+            const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+            const double mbps = seconds > 0.0 ? static_cast<double>(bytes) * 8.0 / seconds / 1000000.0 : 0.0;
+            std::lock_guard<std::mutex> lock(speed_mutex_);
+            std::ostringstream status;
+            status << "{\"running\":true,\"direction\":\"upload\",\"stage\":\"uploading\",\"bytes\":"
+                   << bytes << ",\"target_bytes\":" << upload_bytes << ",\"mbps\":" << mbps << '}';
+            speed_status_json_ = status.str();
+        }
+        /* SSL_write 已确认全部测速正文进入 TLS 连接；测速值只统计正文发送耗时，不等待服务端关闭连接。 */
+        const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        const double mbps = seconds > 0.0 ? static_cast<double>(bytes) * 8.0 / seconds / 1000000.0 : 0.0;
+        std::lock_guard<std::mutex> lock(speed_mutex_);
+        std::ostringstream status;
+        status << "{\"running\":false,\"direction\":\"upload\",\"stage\":\"finished\",\"bytes\":"
+               << bytes << ",\"target_bytes\":" << upload_bytes << ",\"duration_seconds\":" << seconds
+               << ",\"upload_mbps\":" << mbps << '}';
+        speed_status_json_ = status.str();
         speed_running_.store(false);
         return;
     }

@@ -26,6 +26,7 @@ add_executable(hardware_test_demo
 
 target_include_directories(hardware_test_demo PRIVATE
     "${SDK_INCLUDE_DIR}"
+    "${SDK_ROOT}/docs/开发环境/runtime/include"
     "${SDK_INCLUDE_DIR}/chip/hi3516cv610"
     src
 )
@@ -42,6 +43,7 @@ target_link_libraries(hardware_test_demo PRIVATE
     ss_mpi_audio ss_mpi_audio_adp voice_engine upvqe dnvqe vqe_res vqe_record
     vqe_hpf vqe_anr vqe_aec vqe_agc vqe_eq vqe_talkv2 opus aac_dec
     -Wl,--as-needed pthread dl m
+    ssl crypto
 )
 
 target_link_options(hardware_test_demo PRIVATE
