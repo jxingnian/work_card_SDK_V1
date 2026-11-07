@@ -65,6 +65,17 @@
         <label class="checkbox"><input id="connect-now" type="checkbox"> 保存后立即连接</label>
         <button type="submit">增加并保存</button>
       </form>
+      <div class="card-title">
+        <h2>WiFi 上下行测速</h2>
+        <div>
+          <button id="wifi-speed-download">开始下行测速</button>
+          <button id="wifi-speed-upload">开始上行测速</button>
+          <button id="wifi-speed-stop" class="danger">停止测速</button>
+        </div>
+      </div>
+      <p class="muted">测速固定绑定 wlan0，使用 Cloudflare 公开测速接口；下行 5 MiB，上行 4 MiB。</p>
+      <p id="wifi-speed-action-status" class="action-status" aria-live="polite">等待测速</p>
+      <pre id="wifi-speed-result">等待测速结果</pre>
     </section>
 
       <section class="card">

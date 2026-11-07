@@ -440,6 +440,9 @@ void NativeNetwork::speed_worker(std::string url, std::string direction, uint32_
             return;
         }
     }
+    /* Cloudflare 测速端点强制使用 TLS 443，URL 保留 http 前缀用于兼容旧接口参数校验。 */
+    const bool cloudflare_tls = host == "speed.cloudflare.com";
+    if (cloudflare_tls) port = 443;
     const std::string target_ip = resolve_ipv4(host);
     if (target_ip.empty()) {
         std::lock_guard<std::mutex> lock(speed_mutex_);
@@ -507,6 +510,59 @@ void NativeNetwork::speed_worker(std::string url, std::string direction, uint32_
         status << "{\"running\":false,\"direction\":\"upload\",\"stage\":\"finished\",\"bytes\":"
                << bytes << ",\"target_bytes\":" << upload_bytes << ",\"duration_seconds\":" << seconds
                << ",\"upload_mbps\":" << mbps << '}';
+        speed_status_json_ = status.str();
+        speed_running_.store(false);
+        return;
+    }
+    /* WiFi 下行测速通过 Cloudflare HTTPS 接收固定 5 MiB 数据，并实时统计 TLS 正文吞吐。 */
+    if (cloudflare_tls) {
+        TlsSocket tls(socket_fd);
+        if (!tls.connect(host)) {
+            std::lock_guard<std::mutex> lock(speed_mutex_);
+            speed_status_json_ = "{\"running\":false,\"direction\":\"download\",\"stage\":\"failed\",\"message\":\"HTTPS TLS连接失败\"}";
+            speed_running_.store(false);
+            return;
+        }
+        const std::string request = "GET " + path + " HTTP/1.1\r\nHost: " + host +
+                                    "\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n";
+        if (tls.write(request.data(), static_cast<int>(request.size())) <= 0) {
+            std::lock_guard<std::mutex> lock(speed_mutex_);
+            speed_status_json_ = "{\"running\":false,\"direction\":\"download\",\"stage\":\"failed\",\"message\":\"HTTPS请求发送失败\"}";
+            speed_running_.store(false);
+            return;
+        }
+        const auto started = std::chrono::steady_clock::now();
+        size_t bytes = 0;
+        bool header_complete = false;
+        std::string pending;
+        char buffer[8192];
+        while (!speed_cancel_.load()) {
+            const int count = tls.read(buffer, sizeof(buffer));
+            if (count <= 0) break;
+            if (!header_complete) {
+                pending.append(buffer, static_cast<size_t>(count));
+                const size_t header_end = pending.find("\r\n\r\n");
+                if (header_end == std::string::npos) continue;
+                header_complete = true;
+                bytes += pending.size() - header_end - 4U;
+                pending.clear();
+            } else {
+                bytes += static_cast<size_t>(count);
+            }
+            const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+            const double mbps = seconds > 0.0 ? static_cast<double>(bytes) * 8.0 / seconds / 1000000.0 : 0.0;
+            std::lock_guard<std::mutex> lock(speed_mutex_);
+            std::ostringstream status;
+            status << "{\"running\":true,\"direction\":\"download\",\"stage\":\"downloading\",\"bytes\":"
+                   << bytes << ",\"mbps\":" << mbps << '}';
+            speed_status_json_ = status.str();
+        }
+        const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        const double mbps = seconds > 0.0 ? static_cast<double>(bytes) * 8.0 / seconds / 1000000.0 : 0.0;
+        std::lock_guard<std::mutex> lock(speed_mutex_);
+        std::ostringstream status;
+        status << "{\"running\":false,\"direction\":\"download\",\"stage\":\"finished\",\"bytes\":"
+               << bytes << ",\"duration_seconds\":" << seconds << ",\"download_mbps\":" << mbps << '}';
         speed_status_json_ = status.str();
         speed_running_.store(false);
         return;

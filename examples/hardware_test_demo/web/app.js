@@ -885,10 +885,72 @@ if (downloadSpeedButton && !document.getElementById('network-upload-start')) {
   downloadSpeedButton.parentElement.appendChild(uploadSpeedButton);
 }
 
+let wifiSpeedTimer = null;
+let wifiSpeedPolling = false;
+
+/* 读取绑定 wlan0 的 WiFi 测速状态，并在任务结束后停止轮询。 */
+async function refreshWifiSpeed() {
+  if (wifiSpeedPolling) return;
+  wifiSpeedPolling = true;
+  const result = document.getElementById('wifi-speed-result');
+  const status = document.getElementById('wifi-speed-action-status');
+  try {
+    const value = await api('/api/v1/wifi/speed/status');
+    result.textContent = JSON.stringify(value.data, null, 2);
+    if (value.data.running) {
+      status.textContent = value.data.direction === 'upload' ? 'WiFi 上行测速进行中' : 'WiFi 下行测速进行中';
+      status.className = 'action-status busy';
+    } else if (value.data.stage === 'finished') {
+      status.textContent = 'WiFi 测速完成';
+      status.className = 'action-status success';
+      if (wifiSpeedTimer) { clearInterval(wifiSpeedTimer); wifiSpeedTimer = null; }
+    } else if (value.data.stage === 'failed') {
+      status.textContent = value.data.message || 'WiFi 测速失败';
+      status.className = 'action-status error';
+      if (wifiSpeedTimer) { clearInterval(wifiSpeedTimer); wifiSpeedTimer = null; }
+    }
+  } catch (error) {
+    result.textContent = JSON.stringify(error, null, 2);
+    status.textContent = error.message || 'WiFi 测速状态读取失败';
+    status.className = 'action-status error';
+  } finally {
+    wifiSpeedPolling = false;
+  }
+}
+
+/* 按指定方向启动 WiFi 测速，上行固定 4 MiB，下行由服务端固定返回 5 MiB。 */
+async function startWifiSpeed(direction) {
+  const status = document.getElementById('wifi-speed-action-status');
+  status.textContent = direction === 'upload' ? '正在启动 WiFi 上行测速...' : '正在启动 WiFi 下行测速...';
+  status.className = 'action-status busy';
+  try {
+    await api('/api/v1/wifi/speed/start', {
+      method: 'POST',
+      body: JSON.stringify({ direction, upload_bytes: 4 * 1024 * 1024 })
+    });
+    if (!wifiSpeedTimer) wifiSpeedTimer = setInterval(refreshWifiSpeed, 500);
+    await refreshWifiSpeed();
+  } catch (error) {
+    document.getElementById('wifi-speed-result').textContent = JSON.stringify(error, null, 2);
+    status.textContent = error.message || 'WiFi 测速启动失败';
+    status.className = 'action-status error';
+  }
+}
+
+/* 停止当前 WiFi 测速，后台线程会保留停止前已经传输的数据和速度。 */
+async function stopWifiSpeed() {
+  await api('/api/v1/wifi/speed/stop', { method: 'POST', body: '{}' });
+  document.getElementById('wifi-speed-action-status').textContent = '正在停止 WiFi 测速...';
+  await refreshWifiSpeed();
+}
+
 document.getElementById('refresh-status').onclick = refreshStatus;
 document.getElementById('refresh-saved').onclick = refreshSaved;
 document.getElementById('scan').onclick = scan;
 document.getElementById('add-form').onsubmit = addNetwork;
+document.getElementById('wifi-speed-download').onclick = () => startWifiSpeed('download');
+document.getElementById('wifi-speed-upload').onclick = () => startWifiSpeed('upload');
+document.getElementById('wifi-speed-stop').onclick = stopWifiSpeed;
 initializeNetworkPage();
 initializeAudioPage();
 initializeBluetoothPage();

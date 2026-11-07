@@ -246,6 +246,8 @@ public:
                  std::move(audio_runtime_config)),
           key_(std::move(key_device_name)),
            led_(std::move(led_brightness_path), std::move(led_color_path)),
+          /* WiFi 测速固定绑定传入的 wlan0，与 eth0 的 4G 测速状态和路由完全隔离。 */
+          wifi_speed_network_(interface_name),
           /* CH390D 通过独立 eth0 给主控提供 4G 网络，不能复用 WiFi 的 wlan0。 */
           network_("eth0")
     {
@@ -355,6 +357,26 @@ public:
         }
         if (request.path == "/api/v1/ethernet/speed/status" && request.method == "GET") {
             return network_response(network_.speed_status());
+        }
+        if (request.path == "/api/v1/wifi/speed/start" && request.method == "POST") {
+            std::string direction;
+            uint32_t upload_bytes = 4U * 1024U * 1024U;
+            if (!json_string_field(request.body, "direction", &direction) ||
+                (direction != "download" && direction != "upload") ||
+                !json_uint_field(request.body, "upload_bytes", upload_bytes, &upload_bytes) ||
+                upload_bytes < 64U * 1024U || upload_bytes > 8U * 1024U * 1024U) {
+                return error_response(400, "INVALID_REQUEST", "direction or upload_bytes is invalid");
+            }
+            const std::string url = direction == "download" ?
+                "http://speed.cloudflare.com/__down?bytes=5242880" :
+                "http://speed.cloudflare.com/__up";
+            return network_response(wifi_speed_network_.start_speed_test(url, direction, upload_bytes));
+        }
+        if (request.path == "/api/v1/wifi/speed/stop" && request.method == "POST") {
+            return network_response(wifi_speed_network_.stop_speed_test());
+        }
+        if (request.path == "/api/v1/wifi/speed/status" && request.method == "GET") {
+            return network_response(wifi_speed_network_.speed_status());
         }
         if (request.path == "/api/v1/bluetooth/status" && request.method == "GET") {
             return {200, "application/json; charset=utf-8", bluetooth_.status_json()};
@@ -661,6 +683,7 @@ private:
     NativeKey key_;
     NativeLed led_;
     NativeBattery battery_;
+    NativeNetwork wifi_speed_network_;
     NativeNetwork network_;
 };
 
