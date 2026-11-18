@@ -285,25 +285,87 @@ private:
     SSL *ssl_ = nullptr;
 };
 
-/* 请求 CH390D 的固定定位接口，并原样保留 GNSS/LBS 字段供前端分别显示。 */
-NetworkResult request_location(const std::string &interface_name)
+/*
+ * 通过 eth0 请求 CH390D 定位服务。
+ *
+ * GET /location 只读取缓存，不产生收费调用；POST /location/refresh 只创建异步
+ * AirLBS 请求。两种请求共用严格的连接、发送和接收超时，保证模组异常时不会
+ * 长时间占住硬件测试 Demo 的 HTTP 工作线程。
+ */
+NetworkResult request_location_api(const std::string &interface_name,
+                                   const std::string &method,
+                                   const std::string &path)
 {
     const int socket_fd = connect_with_timeout("192.168.5.1", 8080, 5, interface_name);
     if (socket_fd < 0) return failure(504, "LOCATION_CONNECT_FAILED", "无法通过以太网连接 CH390D 定位接口 192.168.5.1:8080");
-    const std::string request = "GET /location HTTP/1.1\r\nHost: 192.168.5.1\r\nConnection: close\r\n\r\n";
-    if (send(socket_fd, request.data(), request.size(), 0) < 0) { close(socket_fd); return failure(502, "LOCATION_SEND_FAILED", "定位请求发送失败"); }
+
+    /* 连接完成后仍要限制 send/recv；仅设置 connect 超时不能覆盖对端不返回数据的场景。 */
+    struct timeval io_timeout{5, 0};
+    (void)setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &io_timeout, sizeof(io_timeout));
+    (void)setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &io_timeout, sizeof(io_timeout));
+
+    std::ostringstream request_stream;
+    request_stream << method << ' ' << path << " HTTP/1.1\r\n"
+                   << "Host: 192.168.5.1:8080\r\n"
+                   << "Accept: application/json\r\n"
+                   << "Connection: close\r\n";
+    if (method == "POST") request_stream << "Content-Length: 0\r\n";
+    request_stream << "\r\n";
+    const std::string request = request_stream.str();
+
+    /* send() 允许短写，因此循环到完整 HTTP 请求已经进入内核发送缓冲区。 */
+    size_t sent_bytes = 0;
+    while (sent_bytes < request.size()) {
+        const ssize_t count = send(socket_fd, request.data() + sent_bytes,
+                                   request.size() - sent_bytes, 0);
+        if (count <= 0) {
+            close(socket_fd);
+            return failure(502, "LOCATION_SEND_FAILED", "定位请求发送失败");
+        }
+        sent_bytes += static_cast<size_t>(count);
+    }
+
     std::string response;
     char buffer[2048];
     while (response.size() < 65536U) {
         const ssize_t count = recv(socket_fd, buffer, sizeof(buffer), 0);
-        if (count <= 0) break;
+        if (count == 0) break;
+        if (count < 0) {
+            const int receive_error = errno;
+            close(socket_fd);
+            if (receive_error == EAGAIN || receive_error == EWOULDBLOCK) {
+                return failure(504, "LOCATION_RECEIVE_TIMEOUT", "等待 CH390D 定位响应超时");
+            }
+            return failure(502, "LOCATION_RECEIVE_FAILED", "接收 CH390D 定位响应失败");
+        }
         response.append(buffer, static_cast<size_t>(count));
     }
     close(socket_fd);
+
+    /* 先检查 HTTP 状态行，再把 JSON 正文交给上层，避免把 404 错误页当成定位数据。 */
+    const size_t status_end = response.find("\r\n");
+    if (status_end == std::string::npos) {
+        return failure(502, "LOCATION_INVALID_RESPONSE", "CH390D 返回的定位响应缺少 HTTP 状态行");
+    }
+    const std::string status_line = response.substr(0, status_end);
+    if (status_line.find(" 200 ") == std::string::npos) {
+        return failure(502, "LOCATION_HTTP_ERROR", "CH390D 定位接口返回异常状态：" + status_line);
+    }
     const size_t body_start = response.find("\r\n\r\n");
     if (body_start == std::string::npos) return failure(502, "LOCATION_INVALID_RESPONSE", "CH390D 返回的定位响应不完整");
     const std::string body = trim(response.substr(body_start + 4U));
-    if (body.find("\"gnss\"") == std::string::npos || body.find("\"lbs\"") == std::string::npos) return failure(502, "LOCATION_INVALID_JSON", "CH390D 定位响应缺少 gnss 或 lbs 字段");
+
+    /* 按接口类型校验关键字段，完整 JSON 仍原样返回，保留新增坐标系和诊断字段。 */
+    if (method == "GET" &&
+        (body.find("\"gnss\"") == std::string::npos || body.find("\"lbs\"") == std::string::npos)) {
+        return failure(502, "LOCATION_INVALID_JSON", "CH390D 定位响应缺少 gnss 或 lbs 字段");
+    }
+    if (method == "POST" &&
+        (body.find("\"accepted\"") == std::string::npos ||
+         body.find("\"request_id\"") == std::string::npos ||
+         body.find("\"status\"") == std::string::npos)) {
+        return failure(502, "LOCATION_REFRESH_INVALID_JSON", "CH390D 刷新响应缺少 accepted、request_id 或 status 字段");
+    }
     return success(body);
 }
 
@@ -378,7 +440,14 @@ NetworkResult NativeNetwork::ping_test(const std::string &target) const
 
 NetworkResult NativeNetwork::location() const
 {
-    return request_location(interface_name_);
+    /* 读取当前 GNSS/AirLBS 缓存，不触发新的收费定位。 */
+    return request_location_api(interface_name_, "GET", "/location");
+}
+
+NetworkResult NativeNetwork::refresh_location() const
+{
+    /* 创建一次异步 AirLBS 请求；网页随后使用返回的 request_id 轮询缓存。 */
+    return request_location_api(interface_name_, "POST", "/location/refresh");
 }
 
 NetworkResult NativeNetwork::start_speed_test(const std::string &url,

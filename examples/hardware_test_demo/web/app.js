@@ -650,16 +650,63 @@ function renderLocation(value) {
   document.getElementById('network-location-result').textContent = JSON.stringify(value, null, 2);
 }
 
-/* 请求 CH390D 定位接口，成功后同时刷新 GNSS、LBS 和原始响应。 */
+/* 等待指定毫秒数；定位轮询使用固定间隔，避免连续查询占用 CH390D HTTP 服务。 */
+function waitForLocationPoll(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+/*
+ * 先创建一次 AirLBS 异步定位，再按 request_id 查询本次结果。
+ * GET /location 只读缓存且不收费；轮询只在同一请求进入 success 或 failed 后结束，
+ * 从而不会把上一次有效坐标误显示成本次刷新成功。
+ */
 async function refreshNetworkLocation() {
-  setNetworkActionStatus('正在请求 CH390D 定位...', 'busy');
+  const button = document.getElementById('network-location-refresh');
+  button.disabled = true;
+  setNetworkActionStatus('正在创建 AirLBS 定位请求...', 'busy');
   try {
-    const value = await api('/api/v1/4g/location/refresh', { method: 'POST', body: '{}' });
-    renderLocation(value);
-    setNetworkActionStatus('定位信息获取成功', 'success');
+    const refresh = await api('/api/v1/4g/location/refresh', { method: 'POST', body: '{}' });
+    const requestId = Number(refresh.data.request_id);
+    if (!Number.isFinite(requestId) || requestId <= 0) {
+      throw { message: 'CH390D 未返回有效 request_id', response: refresh };
+    }
+
+    /* accepted=false 表示复用正在执行的请求，不会重复产生一次收费调用。 */
+    document.getElementById('network-location-result').textContent = JSON.stringify(refresh, null, 2);
+    const initialStatus = refresh.data.status || 'queued';
+    setNetworkActionStatus(`定位请求 #${requestId}：${initialStatus}`, 'busy');
+
+    /* 三轮 Wi-Fi 扫描、AirLBS 定位和地址解析的总上限覆盖到 150 秒。 */
+    for (let poll = 0; poll < 75; poll += 1) {
+      await waitForLocationPoll(2000);
+      const value = await api('/api/v1/4g/location');
+      renderLocation(value);
+      const lbs = value.data && value.data.lbs ? value.data.lbs : {};
+      const currentRequestId = Number(lbs.request_id);
+      const status = lbs.status || 'unknown';
+
+      if (currentRequestId !== requestId) {
+        setNetworkActionStatus(`等待定位请求 #${requestId}，模组当前请求 #${currentRequestId || 0}`, 'busy');
+        continue;
+      }
+      if (status === 'success') {
+        setNetworkActionStatus(`定位请求 #${requestId} 已成功`, 'success');
+        return;
+      }
+      if (status === 'failed') {
+        const reason = lbs.last_error || 'AirLBS 定位失败';
+        setNetworkActionStatus(`定位请求 #${requestId} 失败：${reason}`, 'error');
+        return;
+      }
+      setNetworkActionStatus(`定位请求 #${requestId}：${status}`, 'busy');
+    }
+
+    setNetworkActionStatus(`定位请求 #${requestId} 等待超过 150 秒`, 'error');
   } catch (error) {
     document.getElementById('network-location-result').textContent = JSON.stringify(error, null, 2);
     setNetworkActionStatus(`定位获取失败：${error.message || '请检查 CH390D 网络'}`, 'error');
+  } finally {
+    button.disabled = false;
   }
 }
 

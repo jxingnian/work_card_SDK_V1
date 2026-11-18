@@ -37,6 +37,7 @@ public:
     NetworkResult ethernet_status() const;
     NetworkResult ping_test(const std::string &target) const;
     NetworkResult location() const;
+    NetworkResult refresh_location() const;
     NetworkResult start_speed_test(const std::string &url,
                                    const std::string &direction = "download",
                                    uint32_t upload_bytes = 4U * 1024U * 1024U);

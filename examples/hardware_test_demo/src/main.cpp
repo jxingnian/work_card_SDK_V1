@@ -336,7 +336,7 @@ public:
             return network_response(network_.location());
         }
         if (request.path == "/api/v1/4g/location/refresh" && request.method == "POST") {
-            return network_response(network_.location());
+            return network_response(network_.refresh_location());
         }
         if (request.path == "/api/v1/ethernet/speed/start" && request.method == "POST") {
             std::string url;
